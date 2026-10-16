@@ -6,6 +6,29 @@ All LLM and embedding traffic goes through **Mesh API** (`https://api.meshapi.ai
 
 ---
 
+## The problem, and what DeepDive changes
+
+AI research assistants sound authoritative, but their citations often don't support what they cite them for. An audit of four generative search engines (Bing Chat, NeevaAI, perplexity.ai, YouChat) found that only **51.5%** of generated sentences were fully supported by their citations, and only **74.5%** of citations supported the sentence they were attached to ([Liu, Zhang & Liang, EMNLP Findings 2023](https://arxiv.org/abs/2304.09848)). Anyone acting on that output, such as an analyst writing an investment memo, a journalist checking a claim, a policy team drafting a brief, or a compliance reviewer, has to re-verify everything by hand.
+
+DeepDive treats verification as part of the product, not a disclaimer:
+
+| What goes wrong today | What DeepDive does, mechanically |
+| --- | --- |
+| Citations that don't say what the sentence claims | Every claim must be matched to a **verbatim quote** in its cited source, or it is removed before publication |
+| Plausible numbers that appear in no source | **Numeric grounding**: any figure in a claim has to exist in the cited source |
+| Consensus manufactured from one weak blog | **Authority tiers**, an admissibility floor, and authority-weighted contradiction resolution |
+| Conflicting evidence averaged into mush | The **contradiction radar** shows both sides, verbatim, with which source carries more authority |
+| False premises answered as if true | A premise-check sub-question, and myths overruled by stronger sources |
+| Rumours reported as facts | Forum-grade evidence cannot support a published claim, so the report says the evidence is insufficient |
+| Web pages that hijack the model ("ignore previous instructions…") | A **content shield** neutralises injected text before it is indexed |
+| "Trust me" answers | A **hash-chained audit trail**, an Evidence Lens for every claim, and a one-click audit bundle |
+
+**Measured on every run.** The Live Demo's *Trust ledger* and the Insights tab report, for each run: claims checked, claims published, claims stopped, fabricated quotes caught, weak sources overruled, conflicts surfaced, guardrail decisions, and the Mesh tokens spent. These are counts from that run, not estimates.
+
+**Who it is for:** due-diligence and investment analysts, fact-checkers and newsrooms, policy and research teams, compliance and risk functions, and anyone who needs research they can defend line by line.
+
+---
+
 ## Why this is not a search wrapper
 
 Most research assistants generate an answer and attach links afterwards. Citations look right but often don't support the sentence they sit on. DeepDive turns that around:
@@ -237,7 +260,7 @@ The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/
 
 ```bash
 python3 -m compileall src tests eval                    # syntax gate
-pytest                                                  # 175 hermetic tests, no network, ~5 s
+pytest                                                  # 176 hermetic tests, no network, ~6 s
 ruff check . && mypy src                                # lint / types (pip install ruff mypy)
 ```
 
@@ -295,26 +318,27 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `GET /api/runs/{id}/governance` | Guardrail decisions, budget use, models, audit-chain status for a run |
 | `GET /api/runs/{id}/audit/verify` | Recompute the run's SHA-256 audit hash chain |
 | `POST /api/admin/retention/purge?days=N` | Delete runs older than N days (`X-Admin-Key`) |
+| `GET /api/runs/{id}/bundle` | Self-contained audit bundle (JSON, SHA-256 in `X-Bundle-SHA256`) |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
-## Dashboard
+## The app: three modes and power tools
 
-Two views at `/`, switched from the header.
+An Apple-style interface: system typography, glass navigation, a segmented mode switch, and **light and dark appearance** (it follows your OS; press <kbd>T</kbd> to switch). Everything is keyboard-first.
 
-**How it works** is an interactive map of DeepDive's own LangGraph. It shows the input shield, the six agents, the evidence index, the router with its loop-back edge, the output shield, the Mesh gateway, the hash-chained audit trail, and the retrieval and upload tools.
+**Live Demo** (the landing page) runs six scenarios for real, or replays recorded runs, stage by stage: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
 
-- **Replay any run** step by step from its audit trail and Mesh traces: play/pause, step, scrub, 0.5–8× speed, and <kbd>Space</kbd> / <kbd>←</kbd> <kbd>→</kbd> / <kbd>R</kbd>. Packets move along the edges. Edge labels fill in with live counts (sub-questions, searches, sources, verdicts, loop-back targets, redactions). Nodes show iteration multipliers (×2) and guardrail badges.
-- **Follow live.** While a run is in progress, the active node pulses wherever execution is happening. A blocked run visibly stops at the input shield.
-- **Inspector.** Hover or click any node for what it does, its input/output contract, the guardrails applied there, its code path, and its numbers at the current step. A narrated, clickable timeline sits below.
-- **Deep links:** `/?view=explorer&run=<id>&step=<n>&focus=<node>`.
+**How it works** is an interactive map of DeepDive's own LangGraph, with the input and output shields, the agents, the evidence index, the router and its loop-back edge, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
 
-**Live Console** contains:
+**Console** is the analyst workbench: Report, **Insights** (charts), Claim Matrix, Contradiction Radar, Sources, **Governance**, Audit Trail, Telemetry, and grounded Follow-up chat.
 
-- Composer with presets (including an injection test), private-document upload, and recent runs.
-- 7-node live tracker and a metrics strip.
-- Tabs: Report with citation chips · **Claim Matrix** · **Contradiction Radar** · Sources (tier, authority, shield flags) · **Governance** (every shield decision, budget bars, model allowlist, audit-chain verification, active policy) · **Audit Trail** (filterable, hash-linked events) · Telemetry · Follow-up chat.
-- Source inspector that highlights verified quotes and neutralised injection text.
+Power tools:
+
+- **Command palette** (<kbd>⌘K</kbd>): run a scenario, open any run, jump to any claim or source, verify the audit chain, export the PDF or audit bundle, copy share links.
+- **Evidence Lens**: any claim beside its cited source, with the exact verified span in focus (the character offsets come from the audit trail). Step through claims with <kbd>←</kbd>/<kbd>→</kbd> and filter to stopped claims. Shareable with `?lens=<claim_id>`.
+- **Insights**: grounding and coverage per iteration against their thresholds, the verdict mix, source authority against the tier boundaries and admissibility floor, and Mesh tokens by agent. Each chart has hover tooltips and a table view, and the colour palette has been checked with a colour-vision-deficiency validator.
+- **Audit bundle**: `GET /api/runs/{id}/bundle` returns the run, report, claims, sources, audit events, chain verification and policy as one JSON file, with an `X-Bundle-SHA256` header.
+- **Deep links**: `?view=demo|explorer|console&run=…&step=…&focus=…&tab=…&lens=…&scenario=N&autorun=1`.
 
 ---
 
@@ -330,7 +354,7 @@ Two views at `/`, switched from the header.
 
 ## Testing
 
-175 hermetic tests run in about 5 seconds with no network. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+176 hermetic tests run in about 6 seconds with no network. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -349,6 +373,7 @@ src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exp
 src/agents/      guardian, planner, researcher, drafter, verifier, synthesizer, followup, orchestrator, base
 src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
 src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI
+                 (demo, explorer, console, palette, lens, charts)
 eval/            benchmark_questions.json, run_eval.py, simulated_llm.py, latest_results.json
 tests/           conftest (fakes, fixtures) + 6 test modules
 ```
