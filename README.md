@@ -271,10 +271,13 @@ uvicorn src.api.main:app --reload --port 8000           # open http://localhost:
 ```bash
 cp .env.example .env && $EDITOR .env
 docker compose up --build                               # http://localhost:8000
+DEEPDIVE_PORT=8090 docker compose up --build            # if port 8000 is already taken
 docker compose --profile eval run --rm eval             # benchmark inside the container
+docker run --rm -v "$PWD/tests:/app/tests:ro" deepdive-agent-arena:latest \
+  python -m pytest -p no:cacheprovider                  # run the test suite against the image
 ```
 
-The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/api/health` healthcheck, and stores the SQLite audit store on a named volume.
+The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/api/health` healthcheck, and stores the SQLite audit store on a named volume, so runs survive restarts. Tests are not baked into the production image; mount them as above to verify an image.
 
 ### Quality gates
 
