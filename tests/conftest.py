@@ -154,3 +154,36 @@ def make_gateway(make_settings, audit_store):
         return gateway, client
 
     return _factory
+
+
+@pytest.fixture
+def make_orchestrator(make_settings, audit_store):
+    """Full orchestrator on the offline corpus + deterministic simulator + in-memory SQLite.
+
+    Returns (orchestrator, store, live_events). `client` defaults to a
+    HeuristicMeshSimulator; pass `client=None` to build an unconfigured gateway.
+    """
+    from eval.simulated_llm import HeuristicMeshSimulator
+    from src.agents.orchestrator import ResearchOrchestrator
+    from src.storage.vector_store import HybridVectorStore
+    from src.tools.web_search import WebRetriever
+
+    _default = object()
+
+    def _factory(client: Any = _default, **settings_overrides: Any):
+        settings = make_settings(**settings_overrides)
+        if client is _default:
+            client = HeuristicMeshSimulator()
+        gateway = MeshGateway(settings, client=client, audit_store=audit_store, sleep=lambda _s: None)
+        live: list[Any] = []
+        orchestrator = ResearchOrchestrator(
+            settings,
+            gateway,
+            WebRetriever(settings),
+            HybridVectorStore(settings, gateway),
+            store=audit_store,
+            event_sink=live.append,
+        )
+        return orchestrator, audit_store, live
+
+    return _factory

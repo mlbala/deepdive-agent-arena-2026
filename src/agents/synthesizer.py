@@ -93,35 +93,53 @@ class SynthesizerAgent(BaseAgent):
         sources: dict[str, SourceDocument],
         iteration_metrics: list[IterationMetrics],
         collector: EventCollector,
+        claim_history: list[AtomicClaim] | None = None,
+        verification_history: list[VerificationResult] | None = None,
     ) -> FinalReport:
         verdict_of = {v.claim_id: v for vs in verifications.values() for v in vs}
         verified: dict[str, list[AtomicClaim]] = {}
         removed: list[RemovedClaim] = []
+
+        def strip(claim: AtomicClaim, v: VerificationResult | None, note: str = "") -> None:
+            verdict = v.verdict if v else Verdict.UNSUPPORTED
+            reason = ((v.downgrade_reason or v.rationale) if v else "never verified") or verdict.value.lower()
+            removed.append(
+                RemovedClaim(
+                    claim_id=claim.claim_id,
+                    sub_question_id=claim.sub_question_id,
+                    text=claim.text,
+                    verdict=verdict,
+                    reason=f"{note}{reason}",
+                )
+            )
+            collector.emit(
+                AuditEventType.CLAIM_REMOVED,
+                f"{claim.claim_id} stripped from report ({verdict.value})",
+                claim_id=claim.claim_id,
+                claim=claim.text,
+                verdict=verdict.value,
+                reason=f"{note}{reason}",
+            )
+
+        current_ids: set[str] = set()
         for sq in sub_questions:
             for claim in claims.get(sq.id, []):
+                current_ids.add(claim.claim_id)
                 v = verdict_of.get(claim.claim_id)
                 if v is not None and v.verdict is Verdict.SUPPORTED:
                     verified.setdefault(sq.id, []).append(claim)
-                    continue
-                verdict = v.verdict if v else Verdict.UNSUPPORTED
-                reason = (v.downgrade_reason or v.rationale) if v else "never verified"
-                removed.append(
-                    RemovedClaim(
-                        claim_id=claim.claim_id,
-                        sub_question_id=sq.id,
-                        text=claim.text,
-                        verdict=verdict,
-                        reason=reason or verdict.value.lower(),
-                    )
-                )
-                collector.emit(
-                    AuditEventType.CLAIM_REMOVED,
-                    f"{claim.claim_id} stripped from report ({verdict.value})",
-                    claim_id=claim.claim_id,
-                    claim=claim.text,
-                    verdict=verdict.value,
-                    reason=reason,
-                )
+                else:
+                    strip(claim, v)
+
+        # Claims rejected in earlier iterations and superseded by a loop-back re-draft are
+        # still part of the audit record, so they are reported as removed too.
+        history_verdicts = {v.claim_id: v for v in verification_history or []}
+        for claim in claim_history or []:
+            if claim.claim_id in current_ids:
+                continue
+            v = history_verdicts.get(claim.claim_id)
+            if v is not None and v.verdict is not Verdict.SUPPORTED:
+                strip(claim, v, note=f"[iteration {claim.iteration}, superseded by re-draft] ")
 
         def evidence_source(claim: AtomicClaim) -> list[str]:
             v = verdict_of[claim.claim_id]

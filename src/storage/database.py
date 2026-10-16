@@ -299,6 +299,15 @@ class AuditStore:
                 )
             )
 
+    def ensure_run(
+        self, run_id: str, query: str, *, max_iterations: int, document_ids: list[str] | None = None
+    ) -> None:
+        """Create the run row if it does not exist yet (idempotent)."""
+        with self.session() as s:
+            if s.get(ResearchRun, run_id) is not None:
+                return
+        self.create_run(run_id, query, max_iterations=max_iterations, document_ids=document_ids)
+
     def update_run_status(self, run_id: str, status: RunStatus, *, error: str | None = None) -> None:
         with self.session() as s:
             run = s.get(ResearchRun, run_id)

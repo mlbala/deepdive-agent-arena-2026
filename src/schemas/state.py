@@ -63,7 +63,7 @@ class ResearchState(TypedDict, total=False):
     sources: Annotated[dict[str, SourceDocument], merge_dicts]          # source_id -> doc
     evidence: Annotated[dict[str, EvidenceChunk], merge_dicts]          # chunk_id -> span
     evidence_by_sq: Annotated[dict[str, list[str]], merge_dicts]        # sq_id -> chunk_ids
-    refinement_queries: list[RefinementQuery]
+    refinement_queries: Annotated[list[RefinementQuery], append_list]  # full history
 
     # --- Drafting & verification (keyed by sub-question id) -----------------
     drafts: Annotated[dict[str, DraftSection], merge_dicts]
