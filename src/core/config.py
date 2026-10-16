@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     max_iterations: int = Field(default=3, ge=1, le=6)
     coverage_threshold: float = Field(default=0.70, ge=0, le=1)
     grounding_threshold: float = Field(default=0.75, ge=0, le=1)
+    min_source_authority: float = Field(default=0.45, ge=0, le=1)  # evidence admissibility floor
 
     # --- Storage & concurrency ----------------------------------------------
     database_url: str = "sqlite:///./data/deepdive.db"
@@ -143,6 +144,7 @@ class Settings(BaseSettings):
             "max_iterations": self.max_iterations,
             "coverage_threshold": self.coverage_threshold,
             "grounding_threshold": self.grounding_threshold,
+            "min_source_authority": self.min_source_authority,
         }
 
 

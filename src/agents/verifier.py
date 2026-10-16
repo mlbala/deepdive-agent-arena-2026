@@ -11,7 +11,11 @@ Pipeline per drafted sub-question
    - the evidence quote must be located in the cited source's text (exact → normalised →
      elliptical → fuzzy). If it cannot be found, the verdict is downgraded to UNSUPPORTED
      as probable hallucinated evidence. Located quotes get exact character offsets.
-   - low-confidence SUPPORTED verdicts are downgraded.
+   - low-confidence SUPPORTED verdicts are downgraded, as are SUPPORTED verdicts whose numbers
+     do not appear in the cited sources;
+   - evidence admissibility: a SUPPORTED verdict resting on a source below MIN_SOURCE_AUTHORITY
+     (anonymous forums, thin blog posts) is downgraded, which pushes the loop-back to seek
+     authoritative evidence instead of publishing rumours.
 4. **Contradiction radar** across sources, with quote validation for both sides and an
    authority-based resolution hint.
 5. **Metrics**: grounding rate, coverage score, citation precision, quote verification rate,
@@ -417,6 +421,13 @@ class VerifierAgent(BaseAgent):
                 missing := ungrounded_numbers(claim.text, [sources[s].content for s in valid_cited])
             ):
                 downgrade = f"claim figure(s) {', '.join(sorted(missing))} absent from cited sources"
+            elif verdict is Verdict.SUPPORTED and (
+                (authority := sources[source_id].authority.score) < self.settings.min_source_authority
+            ):
+                downgrade = (
+                    f"evidence source {source_id} authority {authority:.2f} is below the admissibility "
+                    f"floor {self.settings.min_source_authority:.2f}"
+                )
 
         quote = judgement.evidence_quote
         if match is not None and source_id in sources:

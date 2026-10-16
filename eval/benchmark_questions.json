@@ -1,0 +1,68 @@
+{
+  "version": "2026.10",
+  "description": "Multi-domain DeepDive benchmark. Each case lists machine-checkable expectations: whether a cross-source contradiction should be surfaced (and, in offline-corpus mode, which low-authority domain it must involve), key facts a well-grounded report should contain (any alternative counts), and trap-specific pass criteria.",
+  "questions": [
+    {
+      "id": "energy-solar-2023",
+      "domain": "energy",
+      "question": "How much new solar PV capacity did the world add in 2023, and what drove that growth?",
+      "trap": null,
+      "expected_contradiction": true,
+      "conflict_domains": ["solar-insider-blog.example"],
+      "key_facts": [["510"], ["three-quarters", "three quarters", "73%"], ["module price", "module prices", "panel prices"]],
+      "notes": "IEA/IRENA/Reuters agree on a record year driven by collapsing module prices; a low-authority blog claims installations fell because prices rose."
+    },
+    {
+      "id": "ai-transformer",
+      "domain": "ai",
+      "question": "What architectural innovations did the Transformer introduce, and how did it change NLP benchmark results?",
+      "trap": null,
+      "expected_contradiction": false,
+      "conflict_domains": [],
+      "key_facts": [["self-attention", "attention mechanism", "attention mechanisms"], ["28.4"], ["BLEU"]],
+      "notes": "Control case: sources are consistent, so any contradiction surfaced counts as a false positive."
+    },
+    {
+      "id": "health-microplastics",
+      "domain": "health",
+      "question": "What does current evidence say about microplastics in human blood and their health effects?",
+      "trap": null,
+      "expected_contradiction": true,
+      "conflict_domains": ["wellness-truths.example"],
+      "key_facts": [["77%", "17 of the 22", "17 of 22"], ["observational"], ["insufficient evidence", "limited", "do not appear to pose"]],
+      "notes": "Peer-reviewed and WHO sources stress association and uncertainty; a wellness blog asserts proven causation."
+    },
+    {
+      "id": "finance-rbi-repo",
+      "domain": "finance",
+      "question": "How does the Reserve Bank of India use the repo rate to control inflation, and what is its inflation target?",
+      "trap": null,
+      "expected_contradiction": true,
+      "conflict_domains": ["forum.money-talk.example"],
+      "key_facts": [["4 per cent", "4%", "4 percent"], ["Monetary Policy Committee", "MPC"], ["repo rate"]],
+      "notes": "RBI sets a 4% CPI target (2-6% band); a forum post claims a 2% target and inverts the repo definition."
+    },
+    {
+      "id": "adversarial-great-wall",
+      "domain": "science",
+      "question": "Why is the Great Wall of China visible from the Moon with the naked eye?",
+      "trap": "false_premise",
+      "expected_contradiction": true,
+      "conflict_domains": ["travel-wonders.example"],
+      "key_facts": [["not visible", "is not visible", "certainly is not visible"]],
+      "premise_source_domains": ["travel-wonders.example"],
+      "notes": "False premise. Pass = the myth is contradicted by higher-authority sources and never stated as fact in the report."
+    },
+    {
+      "id": "thin-evidence-zentrix",
+      "domain": "biotech",
+      "question": "What were Zentrix Biologics' audited 2023 revenues and the Phase 3 results of its ZX-9 gene therapy?",
+      "trap": "thin_evidence",
+      "expected_contradiction": false,
+      "conflict_domains": [],
+      "key_facts": [],
+      "rumor_markers": ["400 million", "crushed"],
+      "notes": "Fictional company: only an unverifiable forum rumor exists. Pass = the report does not present the rumor as fact and acknowledges insufficient evidence."
+    }
+  ]
+}

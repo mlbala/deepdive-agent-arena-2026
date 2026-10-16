@@ -155,7 +155,8 @@ def test_outputs_are_computed_from_the_query_not_hardcoded(make_orchestrator):
 
 
 def test_false_premise_claims_are_outweighed_by_higher_authority_sources(make_orchestrator):
-    orchestrator, _, _ = make_orchestrator()
+    # Disable the admissibility floor to isolate authority-weighted contradiction resolution.
+    orchestrator, _, _ = make_orchestrator(min_source_authority=0.0)
     report = orchestrator.run("Why is the Great Wall of China visible from the Moon with the naked eye?")["final_report"]
     by_id = {s.source_id: s for s in report.sources}
     blog = next(s.source_id for s in report.sources if s.domain.endswith(".example"))
@@ -167,3 +168,31 @@ def test_false_premise_claims_are_outweighed_by_higher_authority_sources(make_or
     myth_sentences = [s for s in narrative.split(". ") if "only man-made structure visible from the Moon" in s]
     assert all("conflict" in s.lower() for s in myth_sentences), "myth may only appear framed as a conflict"
     assert by_id[blog].authority_score < 0.65
+
+
+def test_rumours_from_low_authority_sources_are_inadmissible(make_orchestrator):
+    orchestrator, store, _ = make_orchestrator()
+    state = orchestrator.run(
+        "What were Zentrix Biologics' audited 2023 revenues and the Phase 3 results of its ZX-9 gene therapy?"
+    )
+    report = state["final_report"]
+    forum = {sid for sid, s in state["sources"].items() if s.domain == "biotech-rumors.example"}
+    assert forum and all(state["sources"][sid].authority.score < 0.45 for sid in forum)
+    narrative = " ".join([report.executive_summary, *report.key_findings, *(s.body for s in report.sections)])
+    assert "400 million" not in narrative
+    assert not forum & {sid for s in report.sections for sid in s.cited_source_ids}
+    assert any("admissibility floor" in r.reason for r in report.removed_claims)
+    audit = store.list_claims(state["run_id"])
+    assert any(row["downgraded"] and "admissibility" in (row["downgrade_reason"] or "") for row in audit)
+
+
+def test_eval_harness_smoke(tmp_path):
+    from eval.run_eval import main
+
+    out = tmp_path / "results.json"
+    results = main(["--llm", "simulated", "--questions", "adversarial-great-wall", "ai-transformer", "--output", str(out)])
+    assert out.exists() and results["llm_backend"]["mode"] == "simulated"
+    assert "NOT Mesh-model quality" in results["llm_backend"]["note"]
+    assert results["aggregate"]["questions"] == 2
+    great_wall = next(r for r in results["questions"] if r["id"] == "adversarial-great-wall")
+    assert great_wall["trap_pass"] is True and great_wall["contradiction_surfaced"] is True
