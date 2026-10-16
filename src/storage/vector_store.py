@@ -107,6 +107,33 @@ def reciprocal_rank_fusion(rankings: Iterable[Sequence[str]], k: int = RRF_K) ->
     return sorted(fused.items(), key=lambda pair: pair[1], reverse=True)
 
 
+_CHROMA_CLIENTS: dict[str, Any] = {}
+_CHROMA_LOCK = threading.Lock()
+
+
+def _shared_chroma_client(persist_dir: str | None) -> Any:
+    """One Chroma client per process (per persist path).
+
+    Chroma keeps a process-wide system per configuration and refuses a second client with
+    different settings, so every store shares one client; collections are namespaced per store.
+    """
+    from pathlib import Path
+
+    key = str(Path(persist_dir).resolve()) if persist_dir else ":ephemeral:"
+    with _CHROMA_LOCK:
+        if key not in _CHROMA_CLIENTS:
+            import chromadb
+            from chromadb.config import Settings as ChromaSettings
+
+            chroma_settings = ChromaSettings(anonymized_telemetry=False, allow_reset=False)
+            _CHROMA_CLIENTS[key] = (
+                chromadb.PersistentClient(path=key, settings=chroma_settings)
+                if persist_dir
+                else chromadb.EphemeralClient(settings=chroma_settings)
+            )
+        return _CHROMA_CLIENTS[key]
+
+
 @dataclass
 class _Namespace:
     chunks: dict[str, EvidenceChunk] = field(default_factory=dict)
@@ -151,16 +178,7 @@ class HybridVectorStore:
     # -- chroma --------------------------------------------------------------
     def _chroma(self) -> Any:
         if self._chroma_client is None:
-            import chromadb
-            from chromadb.config import Settings as ChromaSettings
-
-            chroma_settings = ChromaSettings(anonymized_telemetry=False, allow_reset=False)
-            if self.settings.chroma_persist_dir:
-                self._chroma_client = chromadb.PersistentClient(
-                    path=self.settings.chroma_persist_dir, settings=chroma_settings
-                )
-            else:
-                self._chroma_client = chromadb.EphemeralClient(settings=chroma_settings)
+            self._chroma_client = _shared_chroma_client(self.settings.chroma_persist_dir)
         return self._chroma_client
 
     def _collection_name(self, namespace: str) -> str:

@@ -155,8 +155,12 @@ def ingest_bytes(filename: str, data: bytes) -> IngestedDocument:
         raise DocumentIngestionError(f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit")
 
     if suffix == ".pdf":
+        if not data.lstrip()[:5] == b"%PDF-":
+            raise UnsupportedDocumentTypeError("File has a .pdf extension but is not a PDF (magic bytes mismatch)")
         raw, pages = extract_pdf_text(data)
     else:
+        if b"\x00" in data[:4096] and not data.startswith((b"\xff\xfe", b"\xfe\xff")):
+            raise UnsupportedDocumentTypeError("Binary content is not accepted as a text document")
         raw, pages = _decode_text(data), 1
         if suffix in (".md", ".markdown"):
             raw = _strip_markdown(raw)
@@ -164,9 +168,10 @@ def ingest_bytes(filename: str, data: bytes) -> IngestedDocument:
     content = clean_text(raw)
     if len(content) < 20:
         raise DocumentIngestionError("Document contains no extractable text")
+    safe_name = re.sub(r"[^\w.\- ]", "_", PurePath(filename.replace("\\", "/")).name)[:200] or f"upload{suffix}"
     return IngestedDocument(
         doc_id=f"DOC-{uuid.uuid4().hex[:10]}",
-        filename=PurePath(filename).name,
+        filename=safe_name,
         content_type=SUPPORTED_TYPES[suffix],
         content=content,
         page_count=pages,

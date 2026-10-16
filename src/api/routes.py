@@ -14,6 +14,14 @@
     POST /api/documents                     upload PDF/TXT/MD (multipart)
     GET  /api/documents                     uploaded document library
     GET  /api/health, /api/graph            config/status, LangGraph Mermaid diagram
+    GET  /api/governance/policy             active guardrail / governance policy (no secrets)
+    GET  /api/runs/{id}/governance          per-run guardrail findings, budgets, models
+    GET  /api/runs/{id}/audit/verify        recompute the tamper-evident audit hash chain
+    POST /api/admin/retention/purge         delete runs older than N days (admin key)
+
+Security: when API_KEYS is set every /api route except /api/health requires a key
+(X-API-Key / Bearer; `api_key` query param for GET streams and downloads). Research,
+follow-up and upload routes are rate-limited per client; uploads pass the content shield.
 """
 
 from __future__ import annotations
@@ -24,20 +32,54 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src import __version__
-from src.core.exceptions import MeshNotConfiguredError, RunNotFoundError
+from src.api.security import (
+    client_identity,
+    content_security_policy,
+    new_nonce,
+    presented_api_key,
+    verify_api_key,
+)
+from src.core.exceptions import (
+    AuthenticationRequiredError,
+    MeshNotConfiguredError,
+    RunNotFoundError,
+)
+from src.guardrails.shields import ContentGuard
 from src.schemas.domain import FollowUpAnswer, RunStatus
-from src.tools.document_ingestor import ingest_bytes
+from src.tools.document_ingestor import content_hash, ingest_bytes
 from src.tools.pdf_exporter import build_report_pdf, export_filename
 
 if TYPE_CHECKING:
     from src.api.main import ServiceContainer
 
-router = APIRouter()
+
+
+async def require_api_key(request: Request) -> None:
+    """Router-wide auth: every /api route except /api/health needs a key when API_KEYS is set."""
+    if not request.url.path.startswith("/api/") or request.url.path == "/api/health":
+        return
+    verify_api_key(presented_api_key(request), services(request).settings.api_key_set)
+
+
+def rate_limited(bucket: str) -> Any:
+    async def dependency(request: Request) -> None:
+        svc = services(request)
+        per_minute = {
+            "research": svc.settings.rate_limit_research_per_minute,
+            "followup": svc.settings.rate_limit_followup_per_minute,
+            "upload": svc.settings.rate_limit_upload_per_minute,
+        }[bucket]
+        svc.rate_limiter.check(bucket, client_identity(request), per_minute)
+
+    return Depends(dependency)
+
+
+router = APIRouter(dependencies=[Depends(require_api_key)])
 SSE_POLL_SECONDS = 0.25
 SSE_HEARTBEAT_SECONDS = 15.0
 MAX_UPLOAD_FILES = 10
@@ -78,11 +120,15 @@ def _run_or_404(svc: ServiceContainer, run_id: str) -> dict[str, Any]:
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request) -> HTMLResponse:
     svc = services(request)
-    return request.app.state.templates.TemplateResponse(
+    nonce = new_nonce()
+    response: HTMLResponse = request.app.state.templates.TemplateResponse(
         request,
         "index.html",
-        {"config": svc.settings.public_summary(), "version": __version__},
+        {"config": svc.settings.public_summary(), "version": __version__, "csp_nonce": nonce},
     )
+    response.headers["Content-Security-Policy"] = content_security_policy(nonce)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/api/health")
@@ -95,7 +141,14 @@ async def health(request: Request) -> dict[str, Any]:
         "config": svc.settings.public_summary(),
         "search_providers": svc.retriever.providers(),
         "vector_store": svc.vector_store.status(),
+        "auth_required": bool(svc.settings.api_key_set),
+        "active_runs": svc.runs.active_runs(),
     }
+
+
+@router.get("/api/governance/policy")
+async def governance_policy(request: Request) -> dict[str, Any]:
+    return services(request).settings.governance_policy()
 
 
 @router.get("/api/graph")
@@ -106,7 +159,7 @@ async def graph(request: Request) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Research runs
 # ---------------------------------------------------------------------------
-@router.post("/api/research", status_code=202, response_model=ResearchAccepted)
+@router.post("/api/research", status_code=202, response_model=ResearchAccepted, dependencies=[rate_limited("research")])
 async def start_research(body: ResearchRequest, request: Request) -> ResearchAccepted:
     svc = services(request)
     if not svc.gateway.configured:
@@ -117,8 +170,10 @@ async def start_research(body: ResearchRequest, request: Request) -> ResearchAcc
     missing = [d for d in body.document_ids if d not in known]
     if missing:
         raise HTTPException(status_code=404, detail=f"Unknown document id(s): {', '.join(missing)}")
+    # The input_guard graph node screens and may block the run; PII is redacted *before* persistence here.
+    query = svc.orchestrator.input_guard.redact_only(body.query.strip())
     run_id = svc.runs.start(
-        body.query.strip(),
+        query,
         max_iterations=body.max_iterations or svc.settings.max_iterations,
         document_ids=body.document_ids,
     )
@@ -229,6 +284,51 @@ async def run_audit(run_id: str, request: Request) -> list[dict[str, Any]]:
     return svc.store.list_audit_events(run_id)
 
 
+@router.get("/api/runs/{run_id}/audit/verify")
+async def run_audit_verify(run_id: str, request: Request) -> dict[str, Any]:
+    svc = services(request)
+    _run_or_404(svc, run_id)
+    return svc.store.verify_audit_chain(run_id)
+
+
+@router.get("/api/runs/{run_id}/governance")
+async def run_governance(run_id: str, request: Request) -> dict[str, Any]:
+    svc = services(request)
+    run = _run_or_404(svc, run_id)
+    events = svc.store.list_audit_events(run_id)
+    findings = [e["payload"] for e in events if e["event_type"] == "guardrail_finding"]
+    blocked = next((e["message"] for e in events if e["event_type"] == "guardrail_blocked"), None)
+    report = run.get("report") or {}
+    return {
+        "run_id": run_id,
+        "status": run["status"],
+        "blocked_reason": blocked,
+        "summary": report.get("governance"),
+        "findings": findings,
+        "budget_events": [e for e in events if e["event_type"] == "budget_guard"],
+        "audit_chain": svc.store.verify_audit_chain(run_id),
+        "policy": svc.settings.governance_policy(),
+    }
+
+
+@router.post("/api/admin/retention/purge")
+async def retention_purge(request: Request, days: int) -> dict[str, Any]:
+    svc = services(request)
+    admin = svc.settings.admin_api_key
+    presented = request.headers.get("x-admin-key")
+    if admin is None or presented is None or not _const_eq(presented, admin.get_secret_value()):
+        raise AuthenticationRequiredError("Admin key required (X-Admin-Key header).")
+    if days < 1:
+        raise HTTPException(status_code=422, detail="days must be >= 1")
+    return {"purged": svc.store.purge_runs_older_than(days), "older_than_days": days}
+
+
+def _const_eq(a: str, b: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
 @router.get("/api/runs/{run_id}/report.pdf")
 async def run_report_pdf(run_id: str, request: Request) -> Response:
     svc = services(request)
@@ -249,7 +349,7 @@ async def run_report_pdf(run_id: str, request: Request) -> Response:
     )
 
 
-@router.post("/api/runs/{run_id}/followup", response_model=FollowUpAnswer)
+@router.post("/api/runs/{run_id}/followup", response_model=FollowUpAnswer, dependencies=[rate_limited("followup")])
 async def run_followup(run_id: str, body: FollowUpRequest, request: Request) -> FollowUpAnswer:
     svc = services(request)
     run = _run_or_404(svc, run_id)
@@ -268,35 +368,43 @@ async def run_followups(run_id: str, request: Request) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Documents
 # ---------------------------------------------------------------------------
-@router.post("/api/documents", status_code=201)
+@router.post("/api/documents", status_code=201, dependencies=[rate_limited("upload")])
 async def upload_documents(request: Request, files: list[UploadFile] = File(...)) -> list[dict[str, Any]]:
     svc = services(request)
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=413, detail=f"At most {MAX_UPLOAD_FILES} files per upload")
+    shield = ContentGuard(svc.settings)
     out: list[dict[str, Any]] = []
     for upload in files:
         data = await upload.read()
         doc = await asyncio.to_thread(ingest_bytes, upload.filename or "upload.txt", data)
-        existing = svc.store.find_document_by_hash(doc.content_hash)
+        # Content shield before storage: indirect injection neutralised, secrets (+ PII by policy) redacted.
+        content, findings = shield.sanitize(
+            doc.content, location=f"upload:{doc.filename}", redact_pii=svc.settings.redact_pii_in_documents
+        )
+        digest = content_hash(content)
+        guardrails = [{"kind": f.kind, "action": f.action.value, "detail": f.detail} for f in findings]
+        existing = svc.store.find_document_by_hash(digest)
         if existing is not None:
-            out.append({**existing, "duplicate": True})
+            out.append({**existing, "duplicate": True, "guardrails": guardrails})
             continue
         svc.store.save_document(
             doc.doc_id,
             filename=doc.filename,
             content_type=doc.content_type,
-            content=doc.content,
+            content=content,
             page_count=doc.page_count,
-            content_hash=doc.content_hash,
+            content_hash=digest,
         )
         out.append(
             {
                 "id": doc.doc_id,
                 "filename": doc.filename,
                 "content_type": doc.content_type,
-                "char_count": len(doc.content),
+                "char_count": len(content),
                 "page_count": doc.page_count,
                 "duplicate": False,
+                "guardrails": guardrails,
             }
         )
     return out

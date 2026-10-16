@@ -16,23 +16,32 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src import __version__
 from src.agents.orchestrator import ResearchOrchestrator
+from src.api.security import RateLimiter, SecurityMiddleware
 from src.core.config import Settings, get_settings
 from src.core.exceptions import (
+    AuthenticationRequiredError,
+    BudgetExceededError,
     ConfigurationError,
     DeepDiveError,
     DocumentIngestionError,
+    GuardrailBlockedError,
     MeshGatewayError,
     MeshNotConfiguredError,
+    ModelNotAllowedError,
+    RateLimitedError,
     RunNotFoundError,
     UnsupportedDocumentTypeError,
 )
 from src.core.mesh_gateway import MeshGateway
+from src.guardrails.pii import install_log_redaction
 from src.schemas.domain import AuditEvent, new_run_id
 from src.storage.database import AuditStore
 from src.storage.vector_store import HybridVectorStore
@@ -40,6 +49,7 @@ from src.tools.web_search import WebRetriever
 
 logger = logging.getLogger("deepdive")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+STATIC_DIR = Path(__file__).parent / "static"
 MAX_TRACKED_RUNS = 64
 
 
@@ -91,14 +101,30 @@ class RunEventBus:
 class RunManager:
     """Executes research runs on a background thread pool."""
 
-    def __init__(self, orchestrator: ResearchOrchestrator, store: AuditStore, bus: RunEventBus, workers: int = 2) -> None:
+    def __init__(
+        self, orchestrator: ResearchOrchestrator, store: AuditStore, bus: RunEventBus, *, max_concurrent: int = 4
+    ) -> None:
         self.orchestrator = orchestrator
         self.store = store
         self.bus = bus
-        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="deepdive-run")
+        self.max_concurrent = max_concurrent
+        self._executor = ThreadPoolExecutor(max_workers=max_concurrent, thread_name_prefix="deepdive-run")
         self._futures: dict[str, Future[Any]] = {}
+        self._lock = threading.Lock()
+
+    def active_runs(self) -> int:
+        return sum(not f.done() for f in self._futures.values())
 
     def start(self, query: str, *, max_iterations: int, document_ids: list[str]) -> str:
+        with self._lock:
+            if self.active_runs() >= self.max_concurrent:
+                raise RateLimitedError(
+                    f"{self.max_concurrent} research runs are already in progress; try again shortly.",
+                    retry_after=15,
+                )
+            return self._start_locked(query, max_iterations=max_iterations, document_ids=document_ids)
+
+    def _start_locked(self, query: str, *, max_iterations: int, document_ids: list[str]) -> str:
         run_id = new_run_id()
         self.store.create_run(run_id, query, max_iterations=max_iterations, document_ids=document_ids)
         self.bus.open(run_id)
@@ -132,6 +158,7 @@ class ServiceContainer:
     orchestrator: ResearchOrchestrator
     bus: RunEventBus
     runs: RunManager
+    rate_limiter: RateLimiter = field(default_factory=RateLimiter)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -144,7 +171,7 @@ class ServiceContainer:
         orchestrator = ResearchOrchestrator(
             settings, gateway, retriever, vector_store, store=store, event_sink=bus.publish_audit
         )
-        runs = RunManager(orchestrator, store, bus)
+        runs = RunManager(orchestrator, store, bus, max_concurrent=settings.max_concurrent_runs)
         return cls(settings, store, gateway, retriever, vector_store, orchestrator, bus, runs)
 
     def shutdown(self) -> None:
@@ -152,9 +179,14 @@ class ServiceContainer:
 
 
 _STATUS_FOR_ERROR: list[tuple[type[DeepDiveError], int]] = [
+    (AuthenticationRequiredError, 401),
     (RunNotFoundError, 404),
     (UnsupportedDocumentTypeError, 415),
     (DocumentIngestionError, 422),
+    (GuardrailBlockedError, 422),
+    (RateLimitedError, 429),
+    (BudgetExceededError, 429),
+    (ModelNotAllowedError, 403),
     (MeshNotConfiguredError, 503),
     (ConfigurationError, 503),
     (MeshGatewayError, 502),
@@ -164,13 +196,19 @@ _STATUS_FOR_ERROR: list[tuple[type[DeepDiveError], int]] = [
 def create_app(services: ServiceContainer | None = None, settings: Settings | None = None) -> FastAPI:
     """App factory. Tests inject a prebuilt `ServiceContainer`; production builds one at startup."""
 
+    effective = (services.settings if services else None) or settings or get_settings()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        container = services or ServiceContainer.build(settings or get_settings())
+        container = services or ServiceContainer.build(effective)
         app.state.services = container
         logging.basicConfig(level=container.settings.log_level)
+        install_log_redaction("uvicorn", "uvicorn.error", "uvicorn.access", "deepdive", "src")
         if not container.gateway.configured:
             logger.warning("MESH_API_KEY is not set: research runs will be rejected until it is configured.")
+        if container.settings.data_retention_days:
+            purged = container.store.purge_runs_older_than(container.settings.data_retention_days)
+            logger.info("Retention purge at startup: %s", purged)
         yield
         container.shutdown()
 
@@ -182,16 +220,40 @@ def create_app(services: ServiceContainer | None = None, settings: Settings | No
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=effective.cors_origin_list,
         allow_methods=["GET", "POST"],
-        allow_headers=["*"],
+        allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Request-ID"],
+        expose_headers=["X-Request-ID", "Retry-After"],
     )
+    app.add_middleware(SecurityMiddleware, max_body_bytes=effective.max_request_bytes)
     app.state.templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.exception_handler(DeepDiveError)
-    async def _deepdive_error(_request: Request, exc: DeepDiveError) -> JSONResponse:
+    async def _deepdive_error(request: Request, exc: DeepDiveError) -> JSONResponse:
         status = next((code for kind, code in _STATUS_FOR_ERROR if isinstance(exc, kind)), 500)
-        return JSONResponse(status_code=status, content={"error": exc.to_dict()})
+        headers = {"Retry-After": str(exc.retry_after)} if isinstance(exc, RateLimitedError) else None
+        body = {"error": exc.to_dict(), "request_id": getattr(request.state, "request_id", None)}
+        return JSONResponse(status_code=status, content=body, headers=headers)
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        details = [{"loc": list(e.get("loc", [])), "msg": e.get("msg", "")} for e in exc.errors()]
+        return JSONResponse(
+            status_code=422,
+            content={"detail": details, "request_id": getattr(request.state, "request_id", None)},
+        )
+
+    @app.exception_handler(Exception)
+    async def _unexpected(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("Unhandled error")  # stack trace stays in server logs, never in responses
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {"code": "internal_error", "message": "Internal server error", "details": {}},
+                "request_id": getattr(request.state, "request_id", None),
+            },
+        )
 
     from src.api.routes import router
 

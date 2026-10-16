@@ -188,8 +188,10 @@ def test_rumours_from_low_authority_sources_are_inadmissible(make_orchestrator):
     assert any(row["downgraded"] and "admissibility" in (row["downgrade_reason"] or "") for row in audit)
 
 
-def test_eval_harness_smoke(tmp_path):
+def test_eval_harness_smoke(tmp_path, monkeypatch):
     from eval.run_eval import main
+
+    monkeypatch.chdir(tmp_path)  # never pick up a developer's real .env
 
     out = tmp_path / "results.json"
     results = main(["--llm", "simulated", "--questions", "adversarial-great-wall", "ai-transformer", "--output", str(out)])

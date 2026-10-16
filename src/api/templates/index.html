@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
-  <script>
+  <script nonce="{{ csp_nonce }}">
     tailwind.config = {
       theme: {
         extend: {
@@ -141,7 +141,7 @@
   <aside id="drawer" class="fixed right-0 top-0 z-50 hidden h-full w-full max-w-2xl overflow-auto border-l border-ink-700 bg-ink-900 p-5 scroll-thin"></aside>
   <div id="toast" class="fixed bottom-4 left-1/2 z-50 hidden -translate-x-1/2 rounded-lg border border-rose-500/40 bg-rose-950/90 px-4 py-2 text-sm text-rose-100"></div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 'use strict';
 const NODES = [
   { id: 'planner', label: 'Planner', sub: 'MECE sub-questions' },
