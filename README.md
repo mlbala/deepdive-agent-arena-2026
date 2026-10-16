@@ -198,39 +198,43 @@ By default retrieval uses the curated offline corpus. That makes runs reproducib
 ### Latest recorded results
 
 <!-- EVAL:START -->
-_Generated 2026-10-16T08:16:00+00:00 · LLM backend: **simulated** (`offline-heuristic-simulator`) · retrieval: **offline curated corpus** · max iterations 3_
-
-> **Warning:** Pipeline dry run with the deterministic offline simulator (eval/simulated_llm.py). These numbers validate the harness and the deterministic guards, NOT Mesh-model quality. Re-run `python3 -m eval.run_eval` with MESH_API_KEY set to record real metrics.
+_Generated 2026-10-16T10:45:51+00:00 · LLM backend: **mesh** (`openai/gpt-4o-mini (verifier: openai/gpt-4o-mini)`) · retrieval: **offline curated corpus** · max iterations 3_
 
 | Metric | Value |
 | --- | --- |
-| Claim groundedness, first draft (pre-verification) | 92% |
-| Claim groundedness, final report (independent re-audit) | 97% |
-| Citation precision (re-audit) | 97% |
-| Evidence quotes located verbatim | 100% |
-| Contradiction recall | 25% |
+| Claim groundedness, first draft (pre-verification) | 74% |
+| Claim groundedness, final report (independent re-audit) | 93% |
+| Citation precision (re-audit) | 93% |
+| Evidence quotes located verbatim | 99% |
+| Contradiction recall | 100% |
 | Contradiction false-positive rate (control) | 0% |
-| Loop-back rate / efficacy | 0% / n/a |
+| Loop-back rate / efficacy | 33% / 100% |
 | Trap pass rate (false premise + thin evidence) | 100% |
-| Key-fact recall | 67% |
-| Claims stripped before publication | 6 |
-| Mean Mesh calls / run · total tokens | 13 · 125,725 |
+| Key-fact recall | 87% |
+| Claims stripped before publication | 96 |
+| Mean Mesh calls / run · total tokens | 25.83 · 282,089 |
 
 | Case | Trap | Iter. | Grounding pre → re-audit | Coverage | Contradiction (expected → surfaced) | Trap | Key facts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `energy-solar-2023` | - | 1 | 100% → 92% | 100% | yes → no | - | 67% |
-| `ai-transformer` | - | 1 | 100% → 100% | 100% | no → no | - | 100% |
-| `health-microplastics` | - | 1 | 100% → 100% | 100% | yes → no | - | 33% |
-| `finance-rbi-repo` | - | 1 | 100% → 100% | 100% | yes → no | - | 33% |
-| `adversarial-great-wall` | false_premise | 1 | 75% → 90% | 100% | yes → yes | yes | 100% |
-| `thin-evidence-zentrix` | thin_evidence | 1 | 75% → 100% | 100% | no → no | yes | n/a |
+| `energy-solar-2023` | - | 1 | 89% → 96% | 100% | yes → yes | - | 100% |
+| `ai-transformer` | - | 1 | 89% → 97% | 100% | no → no | - | 100% |
+| `health-microplastics` | - | 3 | 69% → 100% | 100% | yes → yes | - | 67% |
+| `finance-rbi-repo` | - | 1 | 100% → 100% | 100% | yes → yes | - | 67% |
+| `adversarial-great-wall` | false_premise | 1 | 81% → 100% | 100% | yes → yes | yes | 100% |
+| `thin-evidence-zentrix` | thin_evidence | 3 | 15% → 67% | 67% | no → yes | yes | n/a |
 <!-- EVAL:END -->
 
-> **Note on the numbers above.** No Mesh API key was available in the environment where this repository was built, so the committed `eval/latest_results.json` is a **pipeline dry run** with the deterministic simulator in [`eval/simulated_llm.py`](eval/simulated_llm.py). The results file and the table both say so. The run shows the harness, the guards, and the trap handling working end-to-end. It does **not** measure Mesh-model quality, and the simulator's contradiction heuristics are deliberately crude. To record real metrics:
+> **How to read these numbers.** This run used real Mesh completions and embeddings (`openai/gpt-4o-mini` for every agent) with the default thresholds. Retrieval used the offline corpus, so the evidence and the planted conflicts are fixed. The model output is not deterministic, so expect a few points of variation between runs.
+>
+> - **First draft → final report** (74% → 93% grounded) is the verifier's effect: 96 unsupported or outweighed claims were stripped before publication.
+> - **Loop-backs paid off**: both runs that searched again (microplastics, Zentrix) improved their grounding or coverage after the loop-back.
+> - **Zentrix's low score is expected**. The company is fictional and its only evidence is a forum rumour, so the report says the evidence is insufficient instead of inventing figures: 5 claims were published and 47 stripped. It also surfaced one contradiction the benchmark did not expect. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
+>
+> To re-record, with `MESH_API_KEY` in `.env`:
 >
 > ```bash
-> export MESH_API_KEY=rsk_...
 > python3 -m eval.run_eval --update-readme      # rewrites eval/latest_results.json and this table
+> DEEPDIVE_LIVE_TESTS=1 python3 -m pytest -m live -v   # quick live smoke test of the Mesh key
 > ```
 
 ---
@@ -319,6 +323,9 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `GET /api/runs/{id}/audit/verify` | Recompute the run's SHA-256 audit hash chain |
 | `POST /api/admin/retention/purge?days=N` | Delete runs older than N days (`X-Admin-Key`) |
 | `GET /api/runs/{id}/bundle` | Self-contained audit bundle (JSON, SHA-256 in `X-Bundle-SHA256`) |
+| `GET /api/architecture` | Architecture catalog introspected from the compiled graph: nodes and edges, the 11-step workflow, every agent's real prompts, LLM contract, tools, guardrails and model, the `ResearchState` channels with their reducers, and all Pydantic I/O contracts |
+| `GET /api/architecture/stats` | Fleet statistics across all runs: per-agent Mesh calls, average and p95 latency, tokens, repair and error rates; per-node step time; verdict mix; top downgrade reasons; loop-back and block rates |
+| `GET /api/runs/{id}/timeline` | One run on a single time axis: per-node spans (with iteration), every Mesh call, and loop-back, routing, block and publish markers |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
@@ -330,6 +337,18 @@ An Apple-style interface: system typography, glass navigation, a segmented mode 
 
 **How it works** is an interactive map of DeepDive's own LangGraph, with the input and output shields, the agents, the evidence index, the router and its loop-back edge, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
 
+The view has five tabs:
+
+| Tab | What it shows |
+| --- | --- |
+| **Graph** | The live LangGraph map and event-by-event replay described above |
+| **Workflow** | The 11 steps from question to audit seal. Each step lists who runs it (agent, deterministic code or router), what it reads and writes, the checks it applies, its branches (with the real configured thresholds), and its measured average and p95 step time across all runs |
+| **Agents** | One card per agent: role, model, real system prompt (read from the code, not copied), the Pydantic contract it must return, tools, guardrails, and fleet stats (calls, latency, tokens, repair and success rate) |
+| **State** | Every `ResearchState` channel, its type, its reducer (merge, append, or last-write-wins) and which nodes write it; every LLM I/O contract, its fields, and the gateway's retry, repair and budget settings |
+| **Timeline** | A Gantt chart of one run: node spans per iteration, every Mesh call in its own lane, and markers for loop-backs, routing decisions, blocks and publication, with a table view |
+
+The catalog is generated from the compiled graph and the code, so it cannot drift from what runs. `test_architecture_catalog_matches_the_real_graph` streams a real loop-back run and checks that every node's state writes match the catalog.
+
 **Console** is the analyst workbench: Report, **Insights** (charts), Claim Matrix, Contradiction Radar, Sources, **Governance**, Audit Trail, Telemetry, and grounded Follow-up chat.
 
 Power tools:
@@ -338,7 +357,7 @@ Power tools:
 - **Evidence Lens**: any claim beside its cited source, with the exact verified span in focus (the character offsets come from the audit trail). Step through claims with <kbd>←</kbd>/<kbd>→</kbd> and filter to stopped claims. Shareable with `?lens=<claim_id>`.
 - **Insights**: grounding and coverage per iteration against their thresholds, the verdict mix, source authority against the tier boundaries and admissibility floor, and Mesh tokens by agent. Each chart has hover tooltips and a table view, and the colour palette has been checked with a colour-vision-deficiency validator.
 - **Audit bundle**: `GET /api/runs/{id}/bundle` returns the run, report, claims, sources, audit events, chain verification and policy as one JSON file, with an `X-Bundle-SHA256` header.
-- **Deep links**: `?view=demo|explorer|console&run=…&step=…&focus=…&tab=…&lens=…&scenario=N&autorun=1`.
+- **Deep links**: `?view=demo|explorer|console&xview=graph|workflow|agents|state|timeline&run=…&step=…&focus=…&tab=…&lens=…&scenario=N&autorun=1`.
 
 ---
 
@@ -354,7 +373,7 @@ Power tools:
 
 ## Testing
 
-176 hermetic tests run in about 6 seconds with no network. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+178 hermetic tests run in about 6 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -370,10 +389,11 @@ src/core/        config (BaseSettings), mesh_gateway (only LLM egress), typed ex
 src/schemas/     domain contracts + LLM I/O contracts, LangGraph ResearchState with reducers
 src/storage/     SQLAlchemy audit store (append-only guards), hybrid BM25 + Chroma evidence index
 src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exporter, offline_corpus.json
-src/agents/      guardian, planner, researcher, drafter, verifier, synthesizer, followup, orchestrator, base
+src/agents/      guardian, planner, researcher, drafter, verifier, synthesizer, followup, orchestrator, base,
+                 catalog (introspected architecture description)
 src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
 src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI
-                 (demo, explorer, console, palette, lens, charts)
+                 (demo, explorer, architecture, console, palette, lens, charts)
 eval/            benchmark_questions.json, run_eval.py, simulated_llm.py, latest_results.json
 tests/           conftest (fakes, fixtures) + 6 test modules
 ```
@@ -389,7 +409,7 @@ tests/           conftest (fakes, fixtures) + 6 test modules
 
 ## Limitations and roadmap
 
-- The committed eval numbers are a simulator dry run (see the note above). Run with `MESH_API_KEY` to get real Mesh-model metrics.
+- The committed eval uses the offline corpus for reproducibility. `--retrieval live` measures open-web quality, which changes from day to day.
 - Entailment quality depends on the configured model. A stronger `VERIFIER_MODEL` improves it at higher cost.
 - Fuzzy quote matching is limited to ≥ 0.90 similarity with number locking. Heavily paraphrased quotes are rejected, which errs toward safety.
 - Guardrail patterns are deterministic, with the Guardian LLM as a second layer. Neither can anticipate every attack, so treat them as defence in depth, not a guarantee.
