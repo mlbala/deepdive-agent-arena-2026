@@ -41,10 +41,12 @@ from pydantic import BaseModel, ValidationError
 
 from src.core.config import Settings, get_settings
 from src.core.exceptions import (
+    BudgetExceededError,
     MeshGatewayError,
     MeshNotConfiguredError,
     MeshStructuredOutputError,
     MeshTransientError,
+    ModelNotAllowedError,
 )
 
 if TYPE_CHECKING:
@@ -268,6 +270,40 @@ class MeshGateway:
         with self._usage_lock:
             return (self._usage.get(run_id) or UsageTotals()).as_dict()
 
+    # -- governance ----------------------------------------------------------
+    def budget_status(self, run_id: str) -> dict[str, Any]:
+        usage = self.usage_for(run_id)
+        caps = (self.settings.max_llm_calls_per_run, self.settings.max_tokens_per_run)
+        fraction = max(usage["llm_calls"] / caps[0], usage["total_tokens"] / caps[1])
+        return {
+            "llm_calls": usage["llm_calls"],
+            "max_llm_calls": caps[0],
+            "tokens": usage["total_tokens"],
+            "max_tokens": caps[1],
+            "fraction_used": round(fraction, 4),
+            "soft_limit_reached": fraction >= self.settings.budget_soft_fraction,
+        }
+
+    def _enforce_governance(self, model: str, run_id: str | None, *, operation: str) -> None:
+        """Model allowlist + hard per-run budgets, checked before any request leaves the process."""
+        if model not in self.settings.allowed_model_set:
+            raise ModelNotAllowedError(
+                f"Model '{model}' is not on the governance allowlist",
+                details={"model": model, "allowed": sorted(self.settings.allowed_model_set)},
+            )
+        if not run_id:
+            return
+        usage = self.usage_for(run_id)
+        if operation == "chat" and usage["llm_calls"] >= self.settings.max_llm_calls_per_run:
+            raise BudgetExceededError(
+                f"Run {run_id} reached its Mesh call budget ({self.settings.max_llm_calls_per_run})",
+                details=usage,
+            )
+        if usage["total_tokens"] >= self.settings.max_tokens_per_run:
+            raise BudgetExceededError(
+                f"Run {run_id} reached its token budget ({self.settings.max_tokens_per_run:,})", details=usage
+            )
+
     # -- structured chat -----------------------------------------------------
     def complete_structured(
         self,
@@ -283,6 +319,7 @@ class MeshGateway:
     ) -> T:
         """Run a Mesh chat completion and return a validated `response_model` instance."""
         model = model_override or self.settings.model_for(agent_name)
+        self._enforce_governance(model, run_id, operation="chat")
         messages: list[dict[str, str]] = [
             {"role": "system", "content": system_prompt + schema_instructions(response_model)},
             {"role": "user", "content": user_prompt},
@@ -435,6 +472,7 @@ class MeshGateway:
     ) -> list[list[float]]:
         """Embed texts through Mesh API in batches; returns one vector per input."""
         model = model_override or self.settings.mesh_embedding_model
+        self._enforce_governance(model, run_id, operation="embedding")
         vectors: list[list[float]] = []
         for offset in range(0, len(texts), _EMBED_BATCH):
             batch = [t if t.strip() else " " for t in texts[offset : offset + _EMBED_BATCH]]

@@ -55,6 +55,12 @@ class ResearchState(TypedDict, total=False):
     document_ids: list[str]
     max_iterations: int
 
+    # --- Guardrails & governance -------------------------------------------------
+    blocked: bool
+    block_reason: str
+    llm_screen: str
+    budget_exhausted: bool
+
     # --- Planning -----------------------------------------------------------
     sub_questions: list[SubQuestion]
     research_strategy: str
@@ -103,6 +109,10 @@ def initial_state(
         query=query,
         document_ids=list(document_ids or []),
         max_iterations=max_iterations,
+        blocked=False,
+        block_reason="",
+        llm_screen="skipped",
+        budget_exhausted=False,
         sub_questions=[],
         research_strategy="",
         sources={},

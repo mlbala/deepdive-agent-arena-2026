@@ -22,10 +22,11 @@ def test_graph_topology_has_cyclic_verification_edge(make_orchestrator):
     graph = orchestrator.graph.get_graph()
     assert set(NODES) <= set(graph.nodes)
     edges = {(e.source, e.target, e.conditional) for e in graph.edges}
-    assert ("__start__", "planner", False) in edges
+    assert ("__start__", "input_guard", False) in edges
+    assert ("input_guard", "planner", True) in edges and ("input_guard", "__end__", True) in edges
     assert ("verifier", "researcher", True) in edges, "loop-back edge"
     assert ("verifier", "synthesizer", True) in edges
-    assert ("synthesizer", "__end__", False) in edges
+    assert ("synthesizer", "output_guard", False) in edges and ("output_guard", "__end__", False) in edges
     assert "verifier -.-> researcher" in orchestrator.mermaid()
 
 
@@ -71,7 +72,8 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
     assert live[0].event_type is AuditEventType.RUN_STARTED
     assert live[-1].event_type is AuditEventType.RUN_COMPLETED
     started = [e.node for e in live if e.event_type is AuditEventType.NODE_STARTED]
-    assert started[:4] == ["planner", "researcher", "drafter", "verifier"] and started[-1] == "synthesizer"
+    assert started[:5] == ["input_guard", "planner", "researcher", "drafter", "verifier"]
+    assert started[-2:] == ["synthesizer", "output_guard"]
     assert any(e.event_type is AuditEventType.ROUTE_DECISION for e in live)
     assert {e.event_type for e in live} >= {
         AuditEventType.PLAN_CREATED, AuditEventType.SEARCH_EXECUTED, AuditEventType.SOURCE_INDEXED,
@@ -83,8 +85,8 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
 def test_stream_yields_nodes_in_graph_order(make_orchestrator):
     orchestrator, _, _ = make_orchestrator()
     nodes = [node for node, _update in orchestrator.stream(RBI_Q)]
-    assert nodes[:4] == ["planner", "researcher", "drafter", "verifier"]
-    assert nodes[-2:] == ["synthesizer", "__end__"]
+    assert nodes[:5] == ["input_guard", "planner", "researcher", "drafter", "verifier"]
+    assert nodes[-3:] == ["synthesizer", "output_guard", "__end__"]
 
 
 def test_uploaded_documents_join_the_evidence_pool(make_orchestrator):

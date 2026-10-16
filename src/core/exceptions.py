@@ -6,16 +6,18 @@ map failures to HTTP responses and the UI can render actionable messages.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 
 class DeepDiveError(Exception):
     """Root of the DeepDive exception hierarchy."""
 
     code: str = "deepdive_error"
 
-    def __init__(self, message: str, *, details: dict[str, object] | None = None) -> None:
+    def __init__(self, message: str, *, details: Mapping[str, object] | None = None) -> None:
         super().__init__(message)
         self.message = message
-        self.details = details or {}
+        self.details: dict[str, object] = dict(details or {})
 
     def to_dict(self) -> dict[str, object]:
         return {"code": self.code, "message": self.message, "details": self.details}
@@ -92,3 +94,34 @@ class ImmutableRecordError(DeepDiveError):
 
 class ReportExportError(DeepDiveError):
     code = "report_export_error"
+
+
+# --- Guardrails & governance ------------------------------------------------------
+class GuardrailBlockedError(DeepDiveError):
+    """A guardrail refused the input (prompt injection, harmful request, ...)."""
+
+    code = "guardrail_blocked"
+
+
+class ModelNotAllowedError(MeshGatewayError):
+    """A Mesh model outside the governance allowlist was requested."""
+
+    code = "model_not_allowed"
+
+
+class BudgetExceededError(DeepDiveError):
+    """A per-run Mesh call or token budget was exhausted."""
+
+    code = "budget_exceeded"
+
+
+class AuthenticationRequiredError(DeepDiveError):
+    code = "authentication_required"
+
+
+class RateLimitedError(DeepDiveError):
+    code = "rate_limited"
+
+    def __init__(self, message: str, *, retry_after: int) -> None:
+        super().__init__(message, details={"retry_after_seconds": retry_after})
+        self.retry_after = retry_after

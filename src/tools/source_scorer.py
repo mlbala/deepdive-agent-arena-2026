@@ -172,6 +172,7 @@ def score_source(
     content: str = "",
     published_date: str | None = None,
     is_upload: bool = False,
+    injection_detected: bool = False,
 ) -> SourceAuthority:
     """Score a source deterministically. Same inputs always yield the same output."""
     if is_upload or url.startswith("upload://"):
@@ -206,6 +207,10 @@ def score_source(
     if published_date:
         score += 0.01
         signals.append("+0.01 dated publication")
+
+    if injection_detected:
+        score -= 0.10
+        signals.append("-0.10 contained prompt-injection text (neutralised)")
 
     if not url.lower().startswith("https://") and "://" in url:
         score -= 0.02

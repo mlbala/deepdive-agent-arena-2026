@@ -127,6 +127,11 @@ class FakeMeshClient:
         return SimpleNamespace(data=data, usage=SimpleNamespace(prompt_tokens=tokens, total_tokens=tokens))
 
 
+def public_resolver(host: str, port: int, **_kwargs: Any) -> list[tuple[Any, ...]]:
+    """Hermetic DNS: every hostname resolves to a public documentation-range-free address."""
+    return [(2, 1, 6, "", ("93.184.215.14", port))]
+
+
 @pytest.fixture
 def audit_store() -> AuditStore:
     return AuditStore("sqlite:///:memory:")

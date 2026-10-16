@@ -113,7 +113,9 @@ def test_complete_structured_validates_and_injects_schema(make_gateway):
 
 
 def test_model_override_wins(make_gateway):
-    gateway, client = make_gateway([json.dumps({"answer": "x", "confidence": 0.1})])
+    gateway, client = make_gateway(
+        [json.dumps({"answer": "x", "confidence": 0.1})], allowed_models="anthropic/claude-sonnet-4.5"
+    )
     gateway.complete_structured("verifier", "s", "u", Answer, model_override="anthropic/claude-sonnet-4.5")
     assert client.calls[0]["model"] == "anthropic/claude-sonnet-4.5"
 
@@ -224,6 +226,7 @@ def test_temperature_fallback_for_reasoning_models(make_gateway):
             json.dumps({"answer": "a", "confidence": 0.5}),
         ],
         mesh_json_mode=False,
+        allowed_models="openai/o4-mini",
     )
     gateway.complete_structured("planner", "s", "u", Answer, model_override="openai/o4-mini")
     assert "temperature" in client.calls[0] and "temperature" not in client.calls[1]

@@ -12,16 +12,21 @@ documents       user-uploaded PDF/TXT/MD documents
 followups       grounded follow-up Q&A turns
 
 `agent_traces`, `claims_audit`, and `audit_events` are append-only: an ORM-level
-guard raises `ImmutableRecordError` on any UPDATE or DELETE attempt.
+guard raises `ImmutableRecordError` on any UPDATE or DELETE attempt. On top of that,
+`audit_events` is tamper-evident: every row stores `hash = sha256(prev_hash + canonical
+event)` per run, so an edit made outside the ORM (raw SQL) breaks the chain and is
+reported by `verify_audit_chain`. The only sanctioned deletion path is the
+retention purge (`purge_runs_older_than`), which removes whole runs.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -35,9 +40,12 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    delete,
     event,
     func,
+    inspect,
     select,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -176,6 +184,23 @@ class AuditEventRecord(Base):
     message: Mapped[str] = mapped_column(Text)
     payload_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at_iso: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+GENESIS_HASH = "0" * 64
+
+
+def chain_hash(prev_hash: str, row: dict[str, Any]) -> str:
+    """sha256 over the previous hash and the canonical, exactly-stored event fields."""
+    canonical = json.dumps(
+        [row["event_id"], row["run_id"], row["node"], row["event_type"], row["iteration"],
+         row["message"], row["payload_json"], row["created_at_iso"]],
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256((prev_hash + canonical).encode("utf-8")).hexdigest()
 
 
 class UploadedDocument(Base):
@@ -250,6 +275,7 @@ class AuditStore:
         self.database_url = database_url
         self.engine = self._build_engine(database_url)
         Base.metadata.create_all(self.engine)
+        self._migrate()
         self._session_factory = sessionmaker(self.engine, expire_on_commit=False)
         self._write_lock = threading.RLock()
 
@@ -273,6 +299,19 @@ class AuditStore:
             cursor.close()
 
         return engine
+
+    def _migrate(self) -> None:
+        """Additive, idempotent column migrations for databases created by older versions."""
+        additions = {
+            "audit_events": {"created_at_iso": "VARCHAR(40)", "prev_hash": "VARCHAR(64)", "hash": "VARCHAR(64)"},
+        }
+        inspector = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table, columns in additions.items():
+                existing = {c["name"] for c in inspector.get_columns(table)}
+                for name, ddl in columns.items():
+                    if name not in existing:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -526,19 +565,87 @@ class AuditStore:
         if not events:
             return
         with self.session() as s:
+            heads: dict[str, str] = {}
             for ev in events:
+                if ev.run_id not in heads:
+                    heads[ev.run_id] = s.scalar(
+                        select(AuditEventRecord.hash)
+                        .where(AuditEventRecord.run_id == ev.run_id, AuditEventRecord.hash.is_not(None))
+                        .order_by(AuditEventRecord.id.desc())
+                        .limit(1)
+                    ) or GENESIS_HASH
+                row = {
+                    "event_id": ev.event_id,
+                    "run_id": ev.run_id,
+                    "node": ev.node,
+                    "event_type": ev.event_type.value,
+                    "iteration": ev.iteration,
+                    "message": ev.message,
+                    "payload_json": json.dumps(ev.payload, default=str, sort_keys=True),
+                    "created_at_iso": _iso(ev.timestamp),
+                }
+                digest = chain_hash(heads[ev.run_id], row)
                 s.add(
                     AuditEventRecord(
-                        event_id=ev.event_id,
-                        run_id=ev.run_id,
-                        node=ev.node,
-                        event_type=ev.event_type.value,
-                        iteration=ev.iteration,
-                        message=ev.message,
-                        payload_json=json.dumps(ev.payload, default=str),
-                        created_at=ev.timestamp,
+                        **row, created_at=ev.timestamp, prev_hash=heads[ev.run_id], hash=digest
                     )
                 )
+                heads[ev.run_id] = digest
+
+    def audit_chain_head(self, run_id: str) -> str | None:
+        with self.session() as s:
+            return s.scalar(
+                select(AuditEventRecord.hash)
+                .where(AuditEventRecord.run_id == run_id, AuditEventRecord.hash.is_not(None))
+                .order_by(AuditEventRecord.id.desc())
+                .limit(1)
+            )
+
+    def verify_audit_chain(self, run_id: str) -> dict[str, Any]:
+        """Recompute the run's hash chain; any edited, inserted or removed row breaks it."""
+        with self.session() as s:
+            rows = list(
+                s.scalars(select(AuditEventRecord).where(AuditEventRecord.run_id == run_id).order_by(AuditEventRecord.id))
+            )
+        prev = GENESIS_HASH
+        legacy = 0
+        for index, r in enumerate(rows):
+            if r.hash is None:
+                legacy += 1
+                continue
+            row = {
+                "event_id": r.event_id, "run_id": r.run_id, "node": r.node, "event_type": r.event_type,
+                "iteration": r.iteration, "message": r.message, "payload_json": r.payload_json,
+                "created_at_iso": r.created_at_iso,
+            }
+            if r.prev_hash != prev or chain_hash(prev, row) != r.hash:
+                return {
+                    "run_id": run_id, "valid": False, "events": len(rows), "verified": index,
+                    "broken_at": r.event_id, "head": rows[-1].hash, "legacy_unchained": legacy,
+                }
+            prev = r.hash
+        return {
+            "run_id": run_id, "valid": True, "events": len(rows), "verified": len(rows) - legacy,
+            "broken_at": None, "head": prev if rows else None, "legacy_unchained": legacy,
+        }
+
+    # -- retention (the only sanctioned deletion path) ------------------------------
+    def purge_runs_older_than(self, days: int) -> dict[str, int]:
+        """Delete whole runs older than `days` across every table (bypasses row guards by design)."""
+        cutoff = datetime.now(UTC) - timedelta(days=days)
+        with self._write_lock, self.engine.begin() as conn:
+            run_ids = [r[0] for r in conn.execute(select(ResearchRun.id).where(ResearchRun.created_at < cutoff))]
+            if not run_ids:
+                return {"runs": 0}
+            counts: dict[str, int] = {}
+            for model in (FollowUpRecord, EvidenceRecord, SourceRecord, ClaimAudit, AuditEventRecord, AgentTrace):
+                table = Base.metadata.tables[model.__tablename__]
+                result = conn.execute(delete(table).where(table.c.run_id.in_(run_ids)))
+                counts[model.__tablename__] = result.rowcount or 0
+            runs = Base.metadata.tables[ResearchRun.__tablename__]
+            conn.execute(delete(runs).where(runs.c.id.in_(run_ids)))
+            counts["runs"] = len(run_ids)
+            return counts
 
     def list_audit_events(self, run_id: str) -> list[dict[str, Any]]:
         with self.session() as s:

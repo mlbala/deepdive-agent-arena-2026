@@ -101,6 +101,7 @@ class RunStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    BLOCKED = "blocked"
 
 
 class Severity(StrEnum):
@@ -132,12 +133,66 @@ class AuditEventType(StrEnum):
     CLAIM_REMOVED = "claim_removed"
     REPORT_COMPILED = "report_compiled"
     FOLLOWUP_ANSWERED = "followup_answered"
+    RUN_BLOCKED = "run_blocked"
+    GUARDRAIL_CHECK = "guardrail_check"
+    GUARDRAIL_FINDING = "guardrail_finding"
+    GUARDRAIL_BLOCKED = "guardrail_blocked"
+    BUDGET_GUARD = "budget_guard"
     WARNING = "warning"
     ERROR = "error"
 
 
+class GuardrailAction(StrEnum):
+    ALLOW = "allow"
+    FLAG = "flag"
+    REDACT = "redact"
+    NEUTRALIZE = "neutralize"
+    BLOCK = "block"
+
+
+class GuardrailSeverity(StrEnum):
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class _Model(BaseModel):
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True, use_enum_values=False)
+
+
+# ---------------------------------------------------------------------------
+# Guardrails & governance
+# ---------------------------------------------------------------------------
+class GuardrailFinding(_Model):
+    """One decision taken by a guardrail. Excerpts are always redacted and truncated."""
+
+    guard: str  # input_shield | content_shield | url_shield | output_shield | llm_screen | budget | model_policy
+    kind: str  # prompt_injection | harmful_request | pii | secret | hidden_text | ssrf | ...
+    severity: GuardrailSeverity
+    action: GuardrailAction
+    detail: str
+    location: str = ""
+    excerpt: str = ""
+
+
+class GovernanceSummary(_Model):
+    policy_version: str
+    input_screen: str = "passed"  # passed | passed_with_redactions | blocked
+    llm_screen: str = "skipped"  # passed | flagged | blocked | skipped | error
+    findings: list[GuardrailFinding] = Field(default_factory=list)
+    findings_by_guard: dict[str, int] = Field(default_factory=dict)
+    injections_neutralized: int = 0
+    urls_blocked: int = 0
+    pii_redactions: int = 0
+    secret_redactions: int = 0
+    claims_downgraded: int = 0
+    budget: dict[str, Any] = Field(default_factory=dict)
+    models_used: list[str] = Field(default_factory=list)
+    audit_chain_head: str | None = None
+    audit_events: int = 0
+    disclaimer: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +231,7 @@ class SourceDocument(_Model):
     published_date: str | None = None
     retrieved_at: datetime = Field(default_factory=utcnow)
     content_hash: str = ""
+    guardrail_flags: list[str] = Field(default_factory=list)
 
 
 class EvidenceChunk(_Model):
@@ -335,6 +391,7 @@ class SourceReference(_Model):
     tier: SourceTier
     retrieval_tier: RetrievalTier
     cited_in_report: bool = False
+    flags: list[str] = Field(default_factory=list)
 
 
 class ReportMetrics(_Model):
@@ -371,6 +428,7 @@ class FinalReport(_Model):
     sub_questions: list[SubQuestion] = Field(default_factory=list)
     metrics: ReportMetrics = Field(default_factory=ReportMetrics)
     guard_removed_sentences: list[str] = Field(default_factory=list)
+    governance: GovernanceSummary | None = None
     generated_at: datetime = Field(default_factory=utcnow)
 
 
@@ -503,6 +561,19 @@ class SynthesisOutput(_Model):
     key_findings: list[str] = Field(default_factory=list, max_length=8)
     sections: list[SynthesizedSection] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list, max_length=6)
+
+
+class GuardianOutput(_Model):
+    verdict: Literal["allow", "flag", "block"] = Field(description="block only for clear policy violations")
+    categories: list[str] = Field(default_factory=list, description="e.g. prompt_injection, harmful_request, pii")
+    prompt_injection: bool = False
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    rationale: str = ""
+
+    @field_validator("verdict", mode="before")
+    @classmethod
+    def _lower_verdict(cls, value: Any) -> Any:
+        return value.strip().lower() if isinstance(value, str) else value
 
 
 class FollowUpOutput(_Model):

@@ -12,6 +12,7 @@ import pytest
 
 from src.core.exceptions import UnsupportedDocumentTypeError
 from src.core.mesh_gateway import MeshGateway
+from src.guardrails.url_safety import UrlSafetyPolicy
 from src.schemas.domain import RetrievalTier, SourceTier
 from src.storage.vector_store import (
     BM25Index,
@@ -22,7 +23,7 @@ from src.storage.vector_store import (
 from src.tools.document_ingestor import chunk_text, clean_text, ingest_bytes
 from src.tools.source_scorer import TIER_BANDS, normalize_domain, score_source
 from src.tools.web_search import OfflineCorpus, WebRetriever, extract_main_text
-from tests.conftest import FakeMeshClient
+from tests.conftest import FakeMeshClient, public_resolver
 
 LONG = "Substantive analysis paragraph. " * 120  # > 3000 chars
 
@@ -155,6 +156,7 @@ def test_tavily_failure_falls_back_to_duckduckgo(make_settings):
         tavily_client=FakeTavily(fail=True),
         ddgs_factory=lambda: FakeDDGS(hits),
         http_client=_html_client(),
+        url_policy=UrlSafetyPolicy(resolver=public_resolver),
     )
     outcome = retriever.search("solar module prices 2023")
     assert outcome.tier is RetrievalTier.DUCKDUCKGO

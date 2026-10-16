@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -23,13 +24,14 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from urllib.parse import urldefrag
+from urllib.parse import urldefrag, urljoin, urlsplit
 
 import httpx
 from bs4 import BeautifulSoup
 
 from src.core.config import Settings
 from src.core.exceptions import SearchProviderError
+from src.guardrails.url_safety import ALLOWED_CONTENT_TYPES, UrlSafetyPolicy
 from src.schemas.domain import RawSearchResult, RetrievalTier
 from src.storage.vector_store import BM25Index, tokenize
 from src.tools.document_ingestor import clean_text, extract_pdf_text
@@ -41,8 +43,12 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0 Safari/537.36 DeepDiveResearchBot/1.0"
 )
-_BOILERPLATE_TAGS = ("script", "style", "noscript", "nav", "footer", "header", "aside", "form", "svg", "iframe")
+_BOILERPLATE_TAGS = (
+    "script", "style", "noscript", "nav", "footer", "header", "aside", "form", "svg", "iframe", "template", "object",
+)
+_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d])|opacity\s*:\s*0(?![.\d])", re.I)
 MIN_PAGE_CHARS = 300
+MAX_REDIRECTS = 4
 
 
 @dataclass
@@ -60,6 +66,7 @@ class SearchOutcome:
     results: list[RawSearchResult] = field(default_factory=list)
     tier: RetrievalTier | None = None
     attempts: list[ProviderAttempt] = field(default_factory=list)
+    blocked: list[dict[str, str]] = field(default_factory=list)  # url-shield decisions
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -67,7 +74,15 @@ class SearchOutcome:
             "tier": self.tier.value if self.tier else None,
             "results": len(self.results),
             "attempts": [a.__dict__ for a in self.attempts],
+            "blocked_urls": len(self.blocked),
         }
+
+
+@dataclass
+class FetchResult:
+    title: str = ""
+    text: str = ""
+    blocked_reason: str | None = None
 
 
 def normalize_url(url: str) -> str:
@@ -130,6 +145,17 @@ def extract_main_text(html: str) -> tuple[str, str]:
     title = (soup.title.get_text(" ", strip=True) if soup.title else "").strip()
     for tag in soup(_BOILERPLATE_TAGS):
         tag.decompose()
+    # Content hidden from humans is a classic carrier for indirect prompt injection: drop it.
+    for tag in soup.find_all(True):
+        if tag.decomposed:
+            continue
+        attrs = tag.attrs or {}
+        if (
+            "hidden" in attrs
+            or str(attrs.get("aria-hidden", "")).lower() == "true"
+            or _HIDDEN_STYLE.search(str(attrs.get("style", "")))
+        ):
+            tag.decompose()
     container = soup.find("article") or soup.find("main") or soup.body or soup
     blocks: list[str] = []
     for node in container.find_all(["h1", "h2", "h3", "p", "li", "blockquote", "td"]):
@@ -157,12 +183,14 @@ class WebRetriever:
         ddgs_factory: Callable[[], Any] | None = None,
         http_client: httpx.Client | None = None,
         corpus: OfflineCorpus | None = None,
+        url_policy: UrlSafetyPolicy | None = None,
     ) -> None:
         self.settings = settings
         self._tavily_client = tavily_client
         self._ddgs_factory = ddgs_factory
         self._http_client = http_client
         self._corpus = corpus
+        self.url_policy = url_policy or UrlSafetyPolicy(settings.blocked_domain_set)
 
     # -- cascade -------------------------------------------------------------
     def providers(self) -> list[str]:
@@ -179,7 +207,7 @@ class WebRetriever:
     def search(self, query: str, max_results: int | None = None) -> SearchOutcome:
         n = max_results or self.settings.search_max_results
         outcome = SearchOutcome(query=query)
-        handlers: dict[str, tuple[Callable[[str, int], list[RawSearchResult]], RetrievalTier]] = {
+        handlers: dict[str, tuple[Callable[[str, int, list[dict[str, str]]], list[RawSearchResult]], RetrievalTier]] = {
             "tavily": (self._search_tavily, RetrievalTier.TAVILY),
             "duckduckgo": (self._search_ddg, RetrievalTier.DUCKDUCKGO),
             "offline": (self._search_offline, RetrievalTier.OFFLINE),
@@ -188,7 +216,7 @@ class WebRetriever:
             handler, tier = handlers[provider]
             started = time.perf_counter()
             try:
-                results = self._dedupe(handler(query, n))
+                results = self._dedupe(self._apply_blocklist(handler(query, n, outcome.blocked), outcome.blocked))
             except Exception as exc:  # any provider failure → next tier, never crash the run
                 outcome.attempts.append(
                     ProviderAttempt(provider, False, 0, _ms(started), f"{type(exc).__name__}: {exc}"[:300])
@@ -201,6 +229,16 @@ class WebRetriever:
                 outcome.tier = tier
                 return outcome
         return outcome
+
+    def _apply_blocklist(self, results: list[RawSearchResult], blocked: list[dict[str, str]]) -> list[RawSearchResult]:
+        kept: list[RawSearchResult] = []
+        for r in results:
+            host = urlsplit(r.url).hostname or ""
+            if self.url_policy.is_blocked_domain(host):
+                blocked.append({"url": r.url, "reason": f"domain '{host}' is on the blocklist"})
+                continue
+            kept.append(r)
+        return kept
 
     @staticmethod
     def _dedupe(results: list[RawSearchResult]) -> list[RawSearchResult]:
@@ -224,7 +262,7 @@ class WebRetriever:
             self._tavily_client = TavilyClient(api_key=self.settings.tavily_api_key.get_secret_value())
         return self._tavily_client
 
-    def _search_tavily(self, query: str, n: int) -> list[RawSearchResult]:
+    def _search_tavily(self, query: str, n: int, blocked: list[dict[str, str]]) -> list[RawSearchResult]:
         response = self._tavily().search(
             query=query,
             search_depth="advanced",
@@ -263,7 +301,7 @@ class WebRetriever:
 
             return DDGS(timeout=int(self.settings.fetch_timeout_seconds))
 
-    def _search_ddg(self, query: str, n: int) -> list[RawSearchResult]:
+    def _search_ddg(self, query: str, n: int, blocked: list[dict[str, str]]) -> list[RawSearchResult]:
         hits = list(self._ddgs().text(query, max_results=n) or [])
         if not hits:
             return []
@@ -272,8 +310,11 @@ class WebRetriever:
         results: list[RawSearchResult] = []
         for hit, page in zip(hits, pages, strict=True):
             url = hit.get("href", "")
+            if page.blocked_reason:
+                blocked.append({"url": url, "reason": page.blocked_reason})
+                continue  # never index content (even the snippet) from a URL the shield refused
             snippet = clean_text(hit.get("body", ""))
-            title, text = page if page else ("", "")
+            title, text = page.title, page.text
             content = text if len(text) >= MIN_PAGE_CHARS else snippet
             if not url or not content:
                 continue
@@ -288,34 +329,59 @@ class WebRetriever:
             )
         return results
 
-    def fetch_page(self, url: str) -> tuple[str, str] | None:
-        """Download a page (HTML or PDF) and return (title, text); None on failure."""
-        if not url.startswith(("http://", "https://")):
-            return None
+    def fetch_page(self, url: str) -> FetchResult:
+        """SSRF-safe download of an HTML/PDF page.
+
+        Every hop (including redirects) is checked by the URL shield; the body is streamed
+        with a hard byte cap; only allow-listed content types are parsed.
+        """
+        reason = self.url_policy.check(url)
+        if reason:
+            return FetchResult(blocked_reason=reason)
         client = self._http_client or httpx.Client(
             timeout=self.settings.fetch_timeout_seconds,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/pdf;q=0.9,*/*;q=0.5"},
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/pdf;q=0.9,text/plain;q=0.5"},
         )
+        current = url
         try:
-            response = client.get(url)
-            response.raise_for_status()
-            ctype = response.headers.get("content-type", "").lower()
-            if "pdf" in ctype or url.lower().endswith(".pdf"):
-                text, _pages = extract_pdf_text(response.content)
-                return "", clean_text(text)
-            if "html" not in ctype and "text" not in ctype:
-                return None
-            return extract_main_text(response.text)
+            for _hop in range(MAX_REDIRECTS + 1):
+                with client.stream("GET", current, follow_redirects=False) as response:
+                    if response.is_redirect:
+                        target = urljoin(current, response.headers.get("location", ""))
+                        reason = self.url_policy.check(target)
+                        if reason:
+                            return FetchResult(blocked_reason=f"redirect to {target} refused: {reason}")
+                        current = target
+                        continue
+                    response.raise_for_status()
+                    ctype = response.headers.get("content-type", "").split(";")[0].strip().lower()
+                    is_pdf = ctype == "application/pdf" or (not ctype and current.lower().endswith(".pdf"))
+                    if ctype and ctype not in ALLOWED_CONTENT_TYPES:
+                        return FetchResult()
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        body.extend(chunk)
+                        if len(body) > self.settings.fetch_max_bytes:
+                            if is_pdf:
+                                return FetchResult()  # truncated PDFs cannot be parsed
+                            break
+                    data = bytes(body[: self.settings.fetch_max_bytes])
+                    if is_pdf:
+                        text, _pages = extract_pdf_text(data)
+                        return FetchResult(text=clean_text(text))
+                    title, text = extract_main_text(data.decode(response.encoding or "utf-8", errors="replace"))
+                    return FetchResult(title=title, text=text)
+            return FetchResult(blocked_reason=f"more than {MAX_REDIRECTS} redirects")
         except Exception as exc:
             logger.debug("Fetch failed for %s: %s", url, exc)
-            return None
+            return FetchResult()
         finally:
             if self._http_client is None:
                 client.close()
 
     # -- tier 3: offline -----------------------------------------------------
-    def _search_offline(self, query: str, n: int) -> list[RawSearchResult]:
+    def _search_offline(self, query: str, n: int, blocked: list[dict[str, str]]) -> list[RawSearchResult]:
         corpus = self._corpus or default_corpus()
         return corpus.search(query, max_results=n)
 

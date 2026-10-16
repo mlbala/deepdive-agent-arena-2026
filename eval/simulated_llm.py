@@ -121,6 +121,18 @@ class HeuristicMeshSimulator:
         return SimpleNamespace(data=data, usage=SimpleNamespace(prompt_tokens=tokens, total_tokens=tokens))
 
     # -- agents ---------------------------------------------------------------
+    _PARAPHRASED_JAILBREAKS = (
+        "no longer bound", "pretend the rules", "without your usual limits", "rules do not apply to you",
+        "act unrestricted", "set aside your guidelines",
+    )
+
+    def _guardian(self, p: dict[str, Any]) -> dict[str, Any]:
+        question = p.get("question", "").lower()
+        if any(marker in question for marker in self._PARAPHRASED_JAILBREAKS):
+            return {"verdict": "block", "categories": ["prompt_injection"], "prompt_injection": True,
+                    "confidence": 0.93, "rationale": "paraphrased attempt to disable safety rules"}
+        return {"verdict": "allow", "categories": [], "prompt_injection": False, "confidence": 0.97, "rationale": "ordinary research question"}
+
     def _planner(self, p: dict[str, Any]) -> dict[str, Any]:
         core = _core(p.get("research_question", "the topic"))
         return {
