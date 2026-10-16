@@ -218,3 +218,36 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# DeepDive (Agent Arena 2026) — never commit secrets, local state, or binaries
+# ---------------------------------------------------------------------------
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Virtual environments
+venv/
+.venv/
+
+# Runtime state: SQLite audit store, ChromaDB persistence, uploads, exported PDFs
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+chroma/
+chroma_db/
+.chroma/
+*.bin
+*.parquet
+exports/
+uploads/
+
+# Hackathon CI artefact (downloaded at CI time)
+checks.py
+
+# OS / editor noise
+.DS_Store
+.idea/
