@@ -5,6 +5,13 @@ as `RemovedClaim` entries (and `claims_audit` rows). After generation a
 deterministic citation guard removes any sentence that cites a source outside the
 verified set, or that asserts a fact without a citation, so the model cannot
 re-introduce unverified content during synthesis.
+
+Authority-weighted contradiction resolution: a claim can be entailed by its own
+source and still be false (a blog repeating a myth). When the Verifier's radar has
+validated a contradiction whose opposing source outranks the claim's evidence source
+by >= AUTHORITY_OVERRIDE_GAP, and the claim rests on the contested statement, the
+claim is withheld from the narrative (kept in `removed_claims` with the reason) and
+the conflict is surfaced in the contradiction radar instead.
 """
 
 from __future__ import annotations
@@ -30,6 +37,7 @@ from src.schemas.domain import (
     VerificationResult,
     extract_citations,
 )
+from src.storage.vector_store import tokenize
 
 SYSTEM_PROMPT = """ROLE: synthesizer
 You are DeepDive's SYNTHESIZER agent, an executive research editor.
@@ -55,6 +63,36 @@ _META_MARKERS = (
     "not enough evidence", "evidence was", "evidence is", "contested", "conflict", "contradict",
     "disagree", "limited evidence", "no evidence", "not available", "remains uncertain",
 )
+
+
+AUTHORITY_OVERRIDE_GAP = 0.20
+
+
+def _same_statement(a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    ta, tb = set(tokenize(a)), set(tokenize(b))
+    if not ta or not tb:
+        return False
+    return len(ta & tb) / min(len(ta), len(tb)) >= 0.6
+
+
+def outweighing_contradiction(
+    verdict: VerificationResult,
+    contradictions: list[ContradictionItem],
+    sources: dict[str, SourceDocument],
+) -> tuple[ContradictionItem, str] | None:
+    """Return (contradiction, winning_source_id) if the claim's evidence is outranked."""
+    for c in contradictions:
+        if c.origin != "cross_source":
+            continue
+        for losing, statement, winning in ((c.source_a, c.statement_a, c.source_b), (c.source_b, c.statement_b, c.source_a)):
+            if verdict.evidence_source_id != losing or losing not in sources or winning not in sources:
+                continue
+            gap = sources[winning].authority.score - sources[losing].authority.score
+            if gap >= AUTHORITY_OVERRIDE_GAP and _same_statement(verdict.evidence_quote, statement):
+                return c, winning
+    return None
 
 
 def _is_meta_sentence(sentence: str) -> bool:
@@ -126,10 +164,22 @@ class SynthesizerAgent(BaseAgent):
             for claim in claims.get(sq.id, []):
                 current_ids.add(claim.claim_id)
                 v = verdict_of.get(claim.claim_id)
-                if v is not None and v.verdict is Verdict.SUPPORTED:
-                    verified.setdefault(sq.id, []).append(claim)
-                else:
+                if v is None or v.verdict is not Verdict.SUPPORTED:
                     strip(claim, v)
+                    continue
+                override = outweighing_contradiction(v, contradictions, sources)
+                if override is not None:
+                    ctr, winner = override
+                    strip(
+                        claim,
+                        v,
+                        note=(
+                            f"[outweighed: {ctr.contradiction_id} - contradicted by higher-authority {winner} "
+                            f"({sources[winner].authority.score:.2f} vs {sources[v.evidence_source_id or ''].authority.score:.2f})] "
+                        ),
+                    )
+                    continue
+                verified.setdefault(sq.id, []).append(claim)
 
         # Claims rejected in earlier iterations and superseded by a loop-back re-draft are
         # still part of the audit record, so they are reported as removed too.

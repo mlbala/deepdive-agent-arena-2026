@@ -152,3 +152,18 @@ def test_outputs_are_computed_from_the_query_not_hardcoded(make_orchestrator):
     assert "iea.org" in solar_domains and "rbi.org.in" in rbi_domains
     assert solar_domains != rbi_domains
     assert solar["run_id"] != rbi["run_id"]
+
+
+def test_false_premise_claims_are_outweighed_by_higher_authority_sources(make_orchestrator):
+    orchestrator, _, _ = make_orchestrator()
+    report = orchestrator.run("Why is the Great Wall of China visible from the Moon with the naked eye?")["final_report"]
+    by_id = {s.source_id: s for s in report.sources}
+    blog = next(s.source_id for s in report.sources if s.domain.endswith(".example"))
+    assert any({c.source_a, c.source_b} >= {blog} for c in report.contradictions), "radar must flag the myth"
+    outweighed = [r for r in report.removed_claims if r.reason.startswith("[outweighed")]
+    assert outweighed and all(r.verdict.value == "SUPPORTED" for r in outweighed)
+    narrative = " ".join([report.executive_summary, *report.key_findings, *(s.body for s in report.sections)])
+    assert f"[{blog}]" not in " ".join([report.executive_summary, *report.key_findings])
+    myth_sentences = [s for s in narrative.split(". ") if "only man-made structure visible from the Moon" in s]
+    assert all("conflict" in s.lower() for s in myth_sentences), "myth may only appear framed as a conflict"
+    assert by_id[blog].authority_score < 0.65
