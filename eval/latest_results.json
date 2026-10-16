@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-16T07:12:27+00:00",
+  "generated_at": "2026-10-16T08:16:00+00:00",
   "llm_backend": {
     "mode": "simulated",
     "model": "offline-heuristic-simulator",
@@ -28,9 +28,9 @@
     "trap_pass_rate": 1.0,
     "key_fact_recall": 0.6667,
     "claims_removed_total": 6,
-    "mean_llm_calls": 12,
-    "total_tokens": 121385,
-    "mean_wall_clock_s": 0.13
+    "mean_llm_calls": 13,
+    "total_tokens": 125725,
+    "mean_wall_clock_s": 0.15
   },
   "questions": [
     {
@@ -38,7 +38,7 @@
       "domain": "energy",
       "trap": null,
       "question": "How much new solar PV capacity did the world add in 2023, and what drove that growth?",
-      "run_id": "run_ca33be27d740",
+      "run_id": "run_37b1248d9d95",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 1.0,
@@ -60,16 +60,16 @@
       "trap_pass": null,
       "trap_detail": "",
       "sources_indexed": 5,
-      "llm_calls": 12,
-      "total_tokens": 24614,
-      "wall_clock_ms": 504
+      "llm_calls": 13,
+      "total_tokens": 25334,
+      "wall_clock_ms": 618
     },
     {
       "id": "ai-transformer",
       "domain": "ai",
       "trap": null,
       "question": "What architectural innovations did the Transformer introduce, and how did it change NLP benchmark results?",
-      "run_id": "run_6b9f1927ccee",
+      "run_id": "run_83ef52911522",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 1.0,
@@ -91,16 +91,16 @@
       "trap_pass": null,
       "trap_detail": "",
       "sources_indexed": 2,
-      "llm_calls": 12,
-      "total_tokens": 18713,
-      "wall_clock_ms": 49
+      "llm_calls": 13,
+      "total_tokens": 19439,
+      "wall_clock_ms": 60
     },
     {
       "id": "health-microplastics",
       "domain": "health",
       "trap": null,
       "question": "What does current evidence say about microplastics in human blood and their health effects?",
-      "run_id": "run_3cf10bca2a24",
+      "run_id": "run_13c509226a19",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 1.0,
@@ -122,16 +122,16 @@
       "trap_pass": null,
       "trap_detail": "",
       "sources_indexed": 3,
-      "llm_calls": 12,
-      "total_tokens": 21111,
-      "wall_clock_ms": 51
+      "llm_calls": 13,
+      "total_tokens": 21835,
+      "wall_clock_ms": 63
     },
     {
       "id": "finance-rbi-repo",
       "domain": "finance",
       "trap": null,
       "question": "How does the Reserve Bank of India use the repo rate to control inflation, and what is its inflation target?",
-      "run_id": "run_b16a76f5defc",
+      "run_id": "run_f022f31b072e",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 1.0,
@@ -153,16 +153,16 @@
       "trap_pass": null,
       "trap_detail": "",
       "sources_indexed": 5,
-      "llm_calls": 12,
-      "total_tokens": 21830,
-      "wall_clock_ms": 54
+      "llm_calls": 13,
+      "total_tokens": 22557,
+      "wall_clock_ms": 66
     },
     {
       "id": "adversarial-great-wall",
       "domain": "science",
       "trap": "false_premise",
       "question": "Why is the Great Wall of China visible from the Moon with the naked eye?",
-      "run_id": "run_5fe1dadade2e",
+      "run_id": "run_8d1bec97a9fc",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 0.75,
@@ -184,16 +184,16 @@
       "trap_pass": true,
       "trap_detail": "myth contradicted=True, myth cited in summary/findings=False",
       "sources_indexed": 3,
-      "llm_calls": 12,
-      "total_tokens": 17572,
-      "wall_clock_ms": 49
+      "llm_calls": 13,
+      "total_tokens": 18289,
+      "wall_clock_ms": 62
     },
     {
       "id": "thin-evidence-zentrix",
       "domain": "biotech",
       "trap": "thin_evidence",
       "question": "What were Zentrix Biologics' audited 2023 revenues and the Phase 3 results of its ZX-9 gene therapy?",
-      "run_id": "run_8d77080ab485",
+      "run_id": "run_53dd47f6bfc6",
       "iterations": 1,
       "loop_backs": 0,
       "claim_groundedness_pre": 0.75,
@@ -215,9 +215,9 @@
       "trap_pass": true,
       "trap_detail": "rumor stated as fact=False, insufficiency acknowledged=True",
       "sources_indexed": 3,
-      "llm_calls": 12,
-      "total_tokens": 17545,
-      "wall_clock_ms": 47
+      "llm_calls": 13,
+      "total_tokens": 18271,
+      "wall_clock_ms": 57
     }
   ]
 }

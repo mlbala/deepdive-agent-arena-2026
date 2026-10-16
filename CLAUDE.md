@@ -31,7 +31,10 @@ docker compose up --build                             # full stack in a containe
 4. **Every claim is auditable.** Verifier verdicts must quote a span that exists verbatim in the
    cited source (`quote_verified`); unsupported claims are stripped from the report but kept in
    `claims_audit` and the audit trail.
-5. **Never commit** `.env`, `venv/`, `.venv/`, `data/`, `*.db`, `__pycache__/`, or Chroma files.
+5. **Guardrails are graph nodes, not afterthoughts.** New inputs pass `InputGuard`, new evidence passes
+   `ContentGuard`, new fetches pass `UrlSafetyPolicy`, anything published passes `OutputGuard`; every
+   decision is emitted as a `GUARDRAIL_FINDING` audit event. Never persist an unredacted question.
+6. **Never commit** `.env`, `venv/`, `.venv/`, `data/`, `*.db`, `__pycache__/`, or Chroma files.
 
 ## Code conventions
 
@@ -52,6 +55,7 @@ docker compose up --build                             # full stack in a containe
 | `src/schemas/` | Pydantic domain models + LangGraph `ResearchState` with reducers |
 | `src/storage/` | SQLAlchemy audit store (runs, traces, claims, sources) + hybrid evidence index |
 | `src/tools/` | Source authority scorer, 3-tier web retriever, document ingestor, PDF exporter |
-| `src/agents/` | The six agents + LangGraph orchestrator (`route_verification` loop-back) |
-| `src/api/` | FastAPI app, REST + SSE routes, dashboard template |
+| `src/agents/` | Guardian + six agents + LangGraph orchestrator (`input_guard`, `route_verification`, `output_guard`) |
+| `src/guardrails/` | Input/content/output shields, injection & harm patterns, PII/secret redaction, SSRF policy |
+| `src/api/` | FastAPI app, security middleware, REST + SSE routes, dashboard (ES modules in `static/`) |
 | `eval/` | Benchmark questions, evaluation harness, committed metrics |

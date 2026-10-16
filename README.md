@@ -1,6 +1,6 @@
 # DeepDive: Self-Verifying Multi-Agent Research
 
-**Agent Arena 2026 · Track 01.** DeepDive is a research system that won't publish a sentence it can't trace to a verbatim span in a real source. Six specialised agents run in a LangGraph cycle: plan, retrieve, draft with citations, **break the draft into atomic claims and check each one against the exact text of its cited source**, loop back for better evidence when verification fails, then publish only what survived. Every claim, verdict, quote, contradiction, and LLM call is recorded in an append-only audit store and streamed live to an observability dashboard.
+**Agent Arena 2026 · Track 01.** DeepDive is a research system that won't publish a sentence it can't trace to a verbatim span in a real source. Guardrail nodes screen what goes in and what comes out, and six specialised agents run in a LangGraph cycle between them: plan, retrieve, draft with citations, **break the draft into atomic claims and check each one against the exact text of its cited source**, loop back for better evidence when verification fails, then publish only what survived. Every claim, verdict, quote, contradiction, and LLM call is recorded in an append-only audit store and streamed live to an observability dashboard.
 
 All LLM and embedding traffic goes through **Mesh API** (`https://api.meshapi.ai/v1`) using the official `openai` SDK.
 
@@ -33,28 +33,32 @@ flowchart LR
 
     subgraph G[LangGraph StateGraph]
         direction LR
-        P[1 · Planner<br/>MECE sub-questions] --> R[2 · Researcher<br/>retrieve · score · index]
+        IG[0 · Input shield<br/>+ Guardian LLM screen] -->|passed| P[1 · Planner<br/>MECE sub-questions]
+        IG -->|blocked| X([END · blocked run])
+        P --> R[2 · Researcher<br/>retrieve · shield · score · index]
         R --> D[3 · Drafter<br/>cited drafts]
         D --> V[4 · Verifier<br/>claims · entailment · guards<br/>contradiction radar · metrics]
         V -->|route_verification<br/>coverage &lt; 0.70 or grounding &lt; 0.75| R
-        V -->|thresholds met or budget spent| S[5 · Synthesizer<br/>verified report + citation guard]
+        V -->|thresholds met · max iterations · budget soft limit| S[5 · Synthesizer<br/>verified report + citation guard]
+        S --> OG[Output shield<br/>redaction + governance summary]
     end
 
-    S --> DB[(SQLite audit store<br/>runs · agent_traces · claims_audit<br/>sources · evidence · audit_events)]
+    OG --> DB[(SQLite audit store · SHA-256 hash-chained<br/>runs · agent_traces · claims_audit<br/>sources · evidence · audit_events)]
     R <--> VS[(Hybrid evidence index<br/>BM25 + ChromaDB)]
-    R --> WR{{3-tier retriever<br/>Tavily → DDG+BS4 → offline corpus}}
-    P & R & D & V & S -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing]
+    R --> WR{{3-tier retriever + URL shield<br/>Tavily → DDG+BS4 → offline corpus}}
+    IG & P & R & D & V & S -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing<br/>model allowlist · run budgets]
     MG --> MESH[(Mesh API)]
     G -.->|audit events + traces| BUS[RunEventBus] -->|SSE| U
     API --> F[6 · FollowUp agent<br/>grounded chat] --> VS
 ```
 
-The compiled graph (`GET /api/graph` returns it live) has exactly one conditional edge, `verifier -.-> researcher | synthesizer`, which forms the self-correction cycle.
+The compiled graph (`GET /api/graph` returns it live) has two conditional edges. `input_guard -.-> planner | END` ends a blocked question before any research agent runs. `verifier -.-> researcher | synthesizer` forms the self-correction cycle.
 
-### The six agents
+### The agents
 
 | Agent | Input → output contract | What makes it distinct |
 | --- | --- | --- |
+| **Guardian** | question → `GuardianOutput` | A Mesh LLM safety classifier that runs after the deterministic input shield. It can only block at ≥ 0.80 confidence and fails open, because the deterministic shield has already passed the input |
 | **Planner** | question → `PlannerOutput` (3–5 `SubQuestion`s) | Non-overlapping split, premise-check sub-question, near-duplicate removal (Jaccard > 0.8) |
 | **Researcher** | sub-questions + gaps → `SourceDocument`s, `EvidenceChunk`s | Parallel 3-tier search, URL + content-hash dedupe, `SRC-001…` ids, span-exact chunking, retrieval ranked 65% relevance / 35% authority with ≤ 2 chunks per source; on loop-back it asks Mesh for **targeted refinement queries** built from the Verifier's gaps |
 | **Drafter** | sub-question + evidence → `DraftSection` | Answers only from the evidence; every factual sentence cited; conflicts stated with both sources; citations outside the evidence pool are flagged |
@@ -130,6 +134,28 @@ Every provider attempt (success, failure, latency) is written to the audit trail
 
 ---
 
+## Guardrails, governance, and security
+
+Every boundary of the graph has a deterministic shield. Each decision is a typed `GuardrailFinding`, recorded in the hash-chained audit trail and summarised in the report's `GovernanceSummary`.
+
+| Layer | Where | What it does |
+| --- | --- | --- |
+| **Input shield** | `input_guard` node · follow-ups | Blocks prompt injection, jailbreaks, credential probing (`MESH_API_KEY`, `.env`, system prompt) and *operational* harm: CBRN, explosives, malware, self-harm (with a crisis-line message), sexual content involving minors, violent extremism. It strips invisible characters, and redacts PII and secrets **before** anything is stored or sent. Patterns target intent ("how do I make…"), so research on the same topics (history, defence, policy) passes |
+| **Guardian agent** | `input_guard` node | Mesh LLM screen for paraphrased attacks the patterns miss. Blocks only at ≥ 0.80 confidence and fails open |
+| **Content shield** | Researcher, uploads | Neutralises indirect prompt injection in retrieved pages and uploads ("Note to AI assistants…", "ignore previous instructions", SEO citation manipulation) sentence by sentence, before indexing. Flags the source and lowers its authority. Hidden HTML (`display:none`, `hidden`, `aria-hidden`) is never extracted |
+| **URL shield** | Web retriever | SSRF-safe fetching: http/https on ports 80/443 only, no embedded credentials, no `localhost`/`*.internal`/metadata hosts, every resolved IP must be public, every redirect hop re-checked, streamed byte cap, content-type allowlist, domain blocklist |
+| **Evidence guards** | Verifier, Synthesizer | Verbatim quote localisation, numeric grounding, citation scope, admissibility floor (`MIN_SOURCE_AUTHORITY`), authority-weighted contradiction resolution, synthesis citation guard (see above) |
+| **Output shield** | `output_guard` node · follow-ups | Secrets are always redacted and PII is redacted by policy in everything published. Attaches the governance summary and the disclosure |
+| **Model policy** | Mesh gateway | Allowlist (`ALLOWED_MODELS`, by default only the configured models). A disallowed model is refused before any request leaves the process |
+| **Budgets** | Mesh gateway + router | Per-run caps on calls and tokens. At 75% the router stops looping back; at 100% the gateway refuses calls |
+| **Tamper-evident audit** | SQLite | `agent_traces`, `claims_audit` and `audit_events` are append-only (an ORM guard blocks UPDATE and DELETE). Audit events are SHA-256-chained per run, and `GET /api/runs/{id}/audit/verify` detects raw-SQL edits. The retention purge (`DATA_RETENTION_DAYS`, admin endpoint) is the only sanctioned deletion path |
+| **API security** | FastAPI | Nonce-based CSP, `nosniff`, `X-Frame-Options: DENY`, no-referrer, COOP/CORP, `X-Request-ID`, request-body cap, optional API keys (`API_KEYS`, constant-time comparison), per-client rate limits with `Retry-After`, concurrent-run cap, CORS limited to `CORS_ORIGINS`, upload magic-byte checks, and generic 500s that never leak internals. A log filter masks credential-shaped strings |
+| **Data minimisation** | Everywhere | Run rows store only the redacted question. The original question exists only in memory for the input shield. Upload findings are stored with the document and replayed into every run that uses it |
+
+`GET /api/governance/policy` publishes the active policy (no secrets). `GET /api/runs/{id}/governance` returns every guardrail decision for a run, its budget use, the models used, and audit-chain integrity.
+
+---
+
 ## Self-evaluation
 
 `python3 -m eval.run_eval` runs the six benchmark cases in [`eval/benchmark_questions.json`](eval/benchmark_questions.json) (energy, AI, health, finance, a **false-premise trap**, and a **thin-evidence trap**) end-to-end through the real orchestrator, then scores them:
@@ -149,7 +175,7 @@ By default retrieval uses the curated offline corpus. That makes runs reproducib
 ### Latest recorded results
 
 <!-- EVAL:START -->
-_Generated 2026-10-16T07:12:27+00:00 · LLM backend: **simulated** (`offline-heuristic-simulator`) · retrieval: **offline curated corpus** · max iterations 3_
+_Generated 2026-10-16T08:16:00+00:00 · LLM backend: **simulated** (`offline-heuristic-simulator`) · retrieval: **offline curated corpus** · max iterations 3_
 
 > **Warning:** Pipeline dry run with the deterministic offline simulator (eval/simulated_llm.py). These numbers validate the harness and the deterministic guards, NOT Mesh-model quality. Re-run `python3 -m eval.run_eval` with MESH_API_KEY set to record real metrics.
 
@@ -165,7 +191,7 @@ _Generated 2026-10-16T07:12:27+00:00 · LLM backend: **simulated** (`offline-heu
 | Trap pass rate (false premise + thin evidence) | 100% |
 | Key-fact recall | 67% |
 | Claims stripped before publication | 6 |
-| Mean Mesh calls / run · total tokens | 12 · 121,385 |
+| Mean Mesh calls / run · total tokens | 13 · 125,725 |
 
 | Case | Trap | Iter. | Grounding pre → re-audit | Coverage | Contradiction (expected → surfaced) | Trap | Key facts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -211,7 +237,7 @@ The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/
 
 ```bash
 python3 -m compileall src tests eval                    # syntax gate
-pytest                                                  # 108 hermetic tests, no network, ~3 s
+pytest                                                  # 175 hermetic tests, no network, ~5 s
 ruff check . && mypy src                                # lint / types (pip install ruff mypy)
 ```
 
@@ -236,6 +262,17 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `COVERAGE_THRESHOLD` / `GROUNDING_THRESHOLD` | 0.70 / 0.75 | Loop-back thresholds |
 | `MIN_SOURCE_AUTHORITY` | 0.45 | Evidence admissibility floor |
 | `DATABASE_URL` | `sqlite:///./data/deepdive.db` | Audit store |
+| `GUARDRAILS_ENABLED` / `GUARDRAIL_LLM_SCREEN` | true / true | Shields on/off · Guardian LLM screen |
+| `BLOCK_PROMPT_INJECTION` | true | Block (true) or only flag (false) injection in questions |
+| `REDACT_PII_IN_QUERIES` / `_DOCUMENTS` / `_OUTPUT` | true | PII redaction per boundary (secrets are always redacted) |
+| `BLOCKED_DOMAINS` | — | Never fetched or indexed |
+| `ALLOWED_MODELS` | configured models | Mesh model allowlist |
+| `MAX_LLM_CALLS_PER_RUN` / `MAX_TOKENS_PER_RUN` / `BUDGET_SOFT_FRACTION` | 150 / 2,000,000 / 0.75 | Per-run budgets |
+| `API_KEYS` / `ADMIN_API_KEY` | — | Enable API-key auth · retention admin key |
+| `CORS_ORIGINS` | localhost:8000 | Allowed browser origins |
+| `RATE_LIMIT_{RESEARCH,FOLLOWUP,UPLOAD}_PER_MINUTE` | 10 / 30 / 20 | Per-client rate limits |
+| `MAX_CONCURRENT_RUNS` / `MAX_REQUEST_BYTES` | 4 / 20 MB | Capacity limits |
+| `DATA_RETENTION_DAYS` | 0 (keep) | Purge runs older than N days at startup |
 
 ---
 
@@ -254,17 +291,30 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `POST /api/runs/{id}/followup` | Follow-up Q&A grounded in the run's evidence |
 | `POST /api/documents` | Upload PDF/TXT/MD (deduplicated by content hash) to use as private evidence |
 | `GET /api/health` · `GET /api/graph` | Non-secret config and status · live Mermaid diagram of the compiled graph |
+| `GET /api/governance/policy` | Active guardrail and governance policy |
+| `GET /api/runs/{id}/governance` | Guardrail decisions, budget use, models, audit-chain status for a run |
+| `GET /api/runs/{id}/audit/verify` | Recompute the run's SHA-256 audit hash chain |
+| `POST /api/admin/retention/purge?days=N` | Delete runs older than N days (`X-Admin-Key`) |
 
 Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
 ## Dashboard
 
-A dark observability console at `/`:
+Two views at `/`, switched from the header.
 
-- **Live LangGraph tracker.** Nodes light up as they run, iteration counters appear on looped nodes, the loop-back arc animates, and each `route_verification` decision is shown with its numbers.
-- **Metrics strip.** Grounding (first draft → final), coverage, citation precision, quote verification, iterations, claims kept/removed, contradictions, Mesh calls and tokens.
-- **Tabs.** Report with clickable citation chips · **Claim Matrix** (verdict filters, confidence bars, located quotes with offsets, downgrade reasons) · **Contradiction Radar** (both positions, severity, authority resolution) · Sources (tier, authority, rule) · **Audit Trail Inspector** (filterable, expandable JSON payloads) · Telemetry (per-agent calls, tokens, latency, repairs) · Follow-up chat.
-- **Source inspector.** Opens the full source document with verified quote spans highlighted in the colour of their verdict.
+**How it works** is an interactive map of DeepDive's own LangGraph. It shows the input shield, the six agents, the evidence index, the router with its loop-back edge, the output shield, the Mesh gateway, the hash-chained audit trail, and the retrieval and upload tools.
+
+- **Replay any run** step by step from its audit trail and Mesh traces: play/pause, step, scrub, 0.5–8× speed, and <kbd>Space</kbd> / <kbd>←</kbd> <kbd>→</kbd> / <kbd>R</kbd>. Packets move along the edges. Edge labels fill in with live counts (sub-questions, searches, sources, verdicts, loop-back targets, redactions). Nodes show iteration multipliers (×2) and guardrail badges.
+- **Follow live.** While a run is in progress, the active node pulses wherever execution is happening. A blocked run visibly stops at the input shield.
+- **Inspector.** Hover or click any node for what it does, its input/output contract, the guardrails applied there, its code path, and its numbers at the current step. A narrated, clickable timeline sits below.
+- **Deep links:** `/?view=explorer&run=<id>&step=<n>&focus=<node>`.
+
+**Live Console** contains:
+
+- Composer with presets (including an injection test), private-document upload, and recent runs.
+- 7-node live tracker and a metrics strip.
+- Tabs: Report with citation chips · **Claim Matrix** · **Contradiction Radar** · Sources (tier, authority, shield flags) · **Governance** (every shield decision, budget bars, model allowlist, audit-chain verification, active policy) · **Audit Trail** (filterable, hash-linked events) · Telemetry · Follow-up chat.
+- Source inspector that highlights verified quotes and neutralised injection text.
 
 ---
 
@@ -280,13 +330,14 @@ A dark observability console at `/`:
 
 ## Testing
 
-108 hermetic tests run in about 3 seconds with no network. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+175 hermetic tests run in about 5 seconds with no network. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
 - **Verifier and loop:** all four quote-localisation tiers, rejection of altered numbers, each guard's downgrade path, contradiction quote validation, metrics and gaps, the `route_verification` decision matrix, an end-to-end loop-back that repairs a hallucinated draft, and the loop stopping at `max_iterations`
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
-- **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe, 404/409/415/422/503 mapping
+- **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
+- **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
 
 ## Project structure
 
@@ -295,10 +346,11 @@ src/core/        config (BaseSettings), mesh_gateway (only LLM egress), typed ex
 src/schemas/     domain contracts + LLM I/O contracts, LangGraph ResearchState with reducers
 src/storage/     SQLAlchemy audit store (append-only guards), hybrid BM25 + Chroma evidence index
 src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exporter, offline_corpus.json
-src/agents/      planner, researcher, drafter, verifier, synthesizer, followup, orchestrator, base
-src/api/         FastAPI app factory, REST + SSE routes, dashboard template
+src/agents/      guardian, planner, researcher, drafter, verifier, synthesizer, followup, orchestrator, base
+src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
+src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI
 eval/            benchmark_questions.json, run_eval.py, simulated_llm.py, latest_results.json
-tests/           conftest (fakes, fixtures) + 5 test modules
+tests/           conftest (fakes, fixtures) + 6 test modules
 ```
 
 ## Design decisions
@@ -315,6 +367,8 @@ tests/           conftest (fakes, fixtures) + 5 test modules
 - The committed eval numbers are a simulator dry run (see the note above). Run with `MESH_API_KEY` to get real Mesh-model metrics.
 - Entailment quality depends on the configured model. A stronger `VERIFIER_MODEL` improves it at higher cost.
 - Fuzzy quote matching is limited to ≥ 0.90 similarity with number locking. Heavily paraphrased quotes are rejected, which errs toward safety.
+- Guardrail patterns are deterministic, with the Guardian LLM as a second layer. Neither can anticipate every attack, so treat them as defence in depth, not a guarantee.
+- The URL shield validates DNS before connecting, but it does not pin the resolved IP for the connection itself (DNS-rebinding window). An egress proxy closes that gap in production.
 - Next steps: per-claim cross-source corroboration scores, Postgres + pgvector, and streaming token-level drafts.
 
 ## License
