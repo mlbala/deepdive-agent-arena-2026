@@ -74,13 +74,13 @@ const CONNECTORS = { // agent node -> point on the Mesh gateway bar
 const AGENT_NODE = { guardian: 'input_guard', planner: 'planner', researcher: 'researcher', embedder: 'index', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup' };
 
 const KIND = {
-  agent: { color: '#818cf8', label: 'LLM agent · via Mesh' },
-  guard: { color: '#fbbf24', label: 'Guardrail' },
-  tool: { color: '#38bdf8', label: 'Deterministic tool' },
-  store: { color: '#2dd4bf', label: 'Data store' },
-  decision: { color: '#c084fc', label: 'Conditional edge' },
-  io: { color: '#94a3b8', label: 'Input / output' },
-  end: { color: '#fb7185', label: 'Terminal state' },
+  agent: { color: 'rgb(var(--accent))', label: 'LLM agent · via Mesh' },
+  guard: { color: 'rgb(var(--orange))', label: 'Guardrail' },
+  tool: { color: 'rgb(var(--cyan))', label: 'Deterministic tool' },
+  store: { color: 'rgb(var(--teal))', label: 'Data store' },
+  decision: { color: 'rgb(var(--purple))', label: 'Conditional edge' },
+  io: { color: 'rgb(var(--gray))', label: 'Input / output' },
+  end: { color: 'rgb(var(--red))', label: 'Terminal state' },
 };
 
 const INFO = {
@@ -110,29 +110,29 @@ const DUR = { node_started: 650, node_completed: 320, claim_verified: 140, sourc
 function stepOf(item) {
   if (item.kind === 'trace') {
     const node = AGENT_NODE[item.agent_name] || 'planner';
-    return { item, node, gateway: node, color: '#a78bfa', dur: DUR.trace, text: `Mesh call · ${item.agent_name} · ${item.model} · ${fmt(item.total_tokens)} tok · ${item.latency_ms} ms`, tone: 'mesh' };
+    return { item, node, gateway: node, color: 'rgb(var(--purple))', dur: DUR.trace, text: `Mesh call · ${item.agent_name} · ${item.model} · ${fmt(item.total_tokens)} tok · ${item.latency_ms} ms`, tone: 'mesh' };
   }
   const t = item.event_type; const p = item.payload || {}; const node = item.node;
   const s = { item, node: node === 'orchestrator' ? 'user' : node, dur: DUR[t] || 380, text: item.message, tone: 'base' };
   switch (t) {
     case 'run_started': s.node = 'user'; s.edge = 'user_guard'; s.text = `You asked: “${(p.query || '').slice(0, 140)}”`; break;
     case 'guardrail_check': if (p.stage === 'input' && p.status !== 'blocked') s.edge = 'guard_planner'; if (p.stage === 'output') s.edge = 'output_report'; s.tone = 'guard'; break;
-    case 'guardrail_finding': s.tone = 'guard'; if (item.node === 'researcher') s.edge = p.guard === 'url_shield' ? 'web_res' : undefined; s.color = '#fbbf24'; break;
-    case 'guardrail_blocked': s.node = 'input_guard'; s.edge = 'guard_block'; s.color = '#fb7185'; s.tone = 'danger'; break;
+    case 'guardrail_finding': s.tone = 'guard'; if (item.node === 'researcher') s.edge = p.guard === 'url_shield' ? 'web_res' : undefined; s.color = 'rgb(var(--orange))'; break;
+    case 'guardrail_blocked': s.node = 'input_guard'; s.edge = 'guard_block'; s.color = 'rgb(var(--red))'; s.tone = 'danger'; break;
     case 'run_blocked': s.node = 'blocked'; s.tone = 'danger'; break;
     case 'plan_created': s.edge = 'planner_res'; break;
-    case 'search_executed': s.edge = 'web_res'; s.color = '#38bdf8'; break;
+    case 'search_executed': s.edge = 'web_res'; s.color = 'rgb(var(--cyan))'; break;
     case 'source_indexed': s.edge = p.retrieval_tier === 'uploaded_document' ? 'docs_res' : 'res_index'; if (p.retrieval_tier === 'uploaded_document') s.extraEdge = 'res_index'; break;
     case 'node_started':
       s.edge = { planner: 'guard_planner', researcher: item.iteration > 1 ? null : 'planner_res', drafter: 'index_drafter', verifier: 'drafter_ver', synthesizer: 'router_synth', output_guard: 'synth_output' }[node] || undefined;
       s.text = `${NODE[node]?.label || node} started${item.iteration > 1 ? ` (iteration ${item.iteration})` : ''} — ${item.message}`; break;
     case 'draft_created': s.edge = 'drafter_ver'; break;
-    case 'claim_verified': s.color = p.verdict === 'SUPPORTED' ? '#34d399' : p.verdict === 'CONTRADICTED' ? '#fb7185' : '#fbbf24'; s.edge = 'ver_router'; s.tone = p.verdict === 'SUPPORTED' ? 'ok' : 'warn'; break;
+    case 'claim_verified': s.color = p.verdict === 'SUPPORTED' ? 'rgb(var(--green))' : p.verdict === 'CONTRADICTED' ? 'rgb(var(--red))' : 'rgb(var(--orange))'; s.edge = 'ver_router'; s.tone = p.verdict === 'SUPPORTED' ? 'ok' : 'warn'; break;
     case 'claim_downgraded': s.tone = 'warn'; break;
     case 'contradiction_detected': s.tone = 'danger'; break;
     case 'metrics_computed': s.edge = 'ver_router'; break;
-    case 'route_decision': s.node = 'router'; s.edge = p.route === 'researcher' ? 'loop' : 'router_synth'; s.color = p.route === 'researcher' ? '#fbbf24' : '#818cf8'; break;
-    case 'loop_back': s.node = 'router'; s.edge = 'loop'; s.color = '#fbbf24'; s.tone = 'loop'; break;
+    case 'route_decision': s.node = 'router'; s.edge = p.route === 'researcher' ? 'loop' : 'router_synth'; s.color = p.route === 'researcher' ? 'rgb(var(--orange))' : 'rgb(var(--accent))'; break;
+    case 'loop_back': s.node = 'router'; s.edge = 'loop'; s.color = 'rgb(var(--orange))'; s.tone = 'loop'; break;
     case 'budget_guard': s.node = 'router'; s.tone = 'guard'; break;
     case 'report_compiled': s.edge = 'synth_output'; break;
     case 'run_completed': s.node = 'report'; s.edge = 'output_report'; s.tone = 'ok'; break;
@@ -253,13 +253,12 @@ function el(tag, attrs = {}, parent) {
 function buildSvg() {
   const svg = $('#archSvg');
   svg.innerHTML = `<defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#475569"/></marker>
-    <marker id="arrowOn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a5b4fc"/></marker>
-    <marker id="arrowLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fbbf24"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrow-head"/></marker>
+    <marker id="arrowLoop" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrow-head-loop"/></marker>
     <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#1b2230"/></pattern>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" class="canvas-dot"/></pattern>
   </defs>
-  <rect x="0" y="0" width="1240" height="700" fill="url(#dots)"/>`;
+  <rect x="0" y="0" width="1240" height="700" fill="url(#dots)" rx="18"/>`;
 
   // gateway bar + connectors
   const gw = el('g', { class: 'gateway', 'data-node': 'gateway', tabindex: '0' }, svg);
@@ -280,7 +279,7 @@ function buildSvg() {
     if (n.kind === 'decision') {
       const { cx, cy } = n;
       el('polygon', { points: `${cx},${cy - 44} ${cx + 54},${cy} ${cx},${cy + 44} ${cx - 54},${cy}`, class: 'node-box' }, g);
-      const icon = el('g', { transform: `translate(${cx - 10},${cy - 28}) scale(0.85)`, class: 'node-icon', stroke: color }, g);
+      const icon = el('g', { transform: `translate(${cx - 10},${cy - 28}) scale(0.85)`, class: 'node-icon', style: `stroke:${color}` }, g);
       icon.innerHTML = ICONS[n.icon];
       el('text', { x: cx, y: cy + 8, 'text-anchor': 'middle', class: 'node-label' }, g).textContent = n.label;
       el('text', { x: cx, y: cy + 22, 'text-anchor': 'middle', class: 'node-stat', id: `stat-${n.id}` }, g);
@@ -291,8 +290,8 @@ function buildSvg() {
     }
     const h = n.h || NODE_H;
     el('rect', { x: n.x, y: n.y, width: n.w, height: h, rx: 14, class: 'node-box' }, g);
-    el('rect', { x: n.x + 10, y: n.y + (h - 34) / 2, width: 34, height: 34, rx: 9, class: 'node-iconbox', fill: `${color}1f`, stroke: `${color}55` }, g);
-    const icon = el('g', { transform: `translate(${n.x + 15},${n.y + (h - 24) / 2}) scale(1)`, class: 'node-icon', stroke: color }, g);
+    el('rect', { x: n.x + 10, y: n.y + (h - 34) / 2, width: 34, height: 34, rx: 10, class: 'node-iconbox', style: `fill:color-mix(in srgb, ${color} 13%, transparent)` }, g);
+    const icon = el('g', { transform: `translate(${n.x + 15},${n.y + (h - 24) / 2}) scale(1)`, class: 'node-icon', style: `stroke:${color}` }, g);
     icon.innerHTML = ICONS[n.icon];
     el('text', { x: n.x + 54, y: n.y + (h === NODE_H ? 22 : 20), class: 'node-label' }, g).textContent = n.label;
     const subEl = el('text', { x: n.x + 54, y: n.y + (h === NODE_H ? 37 : 34), class: 'node-sub', 'data-max': n.w - 62 }, g);
@@ -394,11 +393,11 @@ function render() {
 }
 
 // ------------------------------------------------------------------ packets
-function firePacket(edgeId, color = '#a5b4fc', reverse = false, isConnector = false) {
+function firePacket(edgeId, color = 'rgb(var(--accent-t))', reverse = false, isConnector = false) {
   const path = isConnector ? $(`#conn-${edgeId}`) : $(`#edge-${edgeId}`);
   if (!path) return;
   const len = path.getTotalLength();
-  const dot = el('circle', { r: isConnector ? 3 : 4.5, fill: color, filter: 'url(#glow)', class: 'packet' }, $('#packets'));
+  const dot = el('circle', { r: isConnector ? 3 : 4.5, style: `fill:${color}`, filter: 'url(#glow)', class: 'packet' }, $('#packets'));
   const duration = Math.max(180, 700 / X.speed);
   const start = performance.now();
   path.classList.add('firing');
@@ -414,7 +413,7 @@ function firePacket(edgeId, color = '#a5b4fc', reverse = false, isConnector = fa
 function animateStep(st) {
   if (!st) return;
   if (st.gateway && CONNECTORS[st.gateway]) { firePacket(st.gateway, st.color, st.gateway === 'synthesizer' || st.gateway === 'followup', true); $('.gw-bar').classList.add('pulse'); setTimeout(() => $('.gw-bar')?.classList.remove('pulse'), 260); return; }
-  if (st.edge) firePacket(st.edge, st.color || (st.edge === 'loop' ? '#fbbf24' : '#a5b4fc'));
+  if (st.edge) firePacket(st.edge, st.color || (st.edge === 'loop' ? 'rgb(var(--orange))' : 'rgb(var(--accent-t))'));
   if (st.extraEdge) setTimeout(() => firePacket(st.extraEdge, st.color), 200 / X.speed);
   const g = $(`[data-node="${st.node}"]`);
   if (g) { g.classList.remove('flash'); void g.getBBox(); g.classList.add('flash'); }
@@ -448,7 +447,7 @@ function inspect(id, explicit) {
   if (!id) { panel.innerHTML = legendHtml(); return; }
   const n = NODE[id]; const info = INFO[id];
   if (!info) return;
-  const kind = id === 'gateway' ? { color: '#a78bfa', label: 'LLM gateway' } : KIND[n.kind];
+  const kind = id === 'gateway' ? { color: 'rgb(var(--purple))', label: 'LLM gateway' } : KIND[n.kind];
   const S = X.state || reduce(X.i);
   panel.innerHTML = `<div class="fade-in">
     <div class="flex items-center gap-2"><span class="kind-pill" style="--c:${kind.color}">${esc(kind.label)}</span>${n?.n ? `<span class="font-mono text-[10px] text-slate-500">step ${n.n}</span>` : ''}
@@ -497,9 +496,9 @@ function liveStatsHtml(id, S) {
 function legendHtml() {
   return `<div class="fade-in"><h3 class="text-sm font-semibold">How to read this</h3>
     <p class="mt-1.5 text-[13px] leading-relaxed text-slate-300">This is DeepDive's LangGraph. Hover or click any box to see what it does, the checks applied there, and its numbers for the loaded run. Press <kbd>Space</kbd> to replay the run event by event: every step comes from the hash-chained audit trail. While a run is in progress, the graph shows where it is executing.</p>
-    <div class="mt-3 grid grid-cols-2 gap-1.5 text-[11.5px]">${Object.values(KIND).map((k) => `<span class="kind-pill" style="--c:${k.color}">${esc(k.label)}</span>`).join('')}<span class="kind-pill" style="--c:#a78bfa">Mesh gateway</span></div>
-    <ul class="mt-3 space-y-1 text-[12px] text-slate-400"><li><span class="legend-dot" style="background:#818cf8"></span>active node · <span class="legend-dot" style="background:#34d399"></span>done · <span class="legend-dot" style="background:#fb7185"></span>blocked/failed</li>
-    <li><span class="legend-badge">3</span> guardrail findings at that node</li><li><span class="text-amber-300">amber dashed</span> = the self-correction loop-back</li><li><span class="text-violet-300">purple pulses</span> = Mesh API calls (tokens & latency in the bar)</li></ul></div>`;
+    <div class="mt-3 grid grid-cols-2 gap-1.5 text-[11.5px]">${Object.values(KIND).map((k) => `<span class="kind-pill" style="--c:${k.color}">${esc(k.label)}</span>`).join('')}<span class="kind-pill" style="--c:rgb(var(--purple))">Mesh gateway</span></div>
+    <ul class="mt-3 space-y-1 text-[12px] text-slate-400"><li><span class="legend-dot" style="background:rgb(var(--accent))"></span>active node · <span class="legend-dot" style="background:rgb(var(--green))"></span>done · <span class="legend-dot" style="background:rgb(var(--red))"></span>blocked/failed</li>
+    <li><span class="legend-badge">3</span> guardrail findings at that node</li><li><span class="text-amber-300">orange dashed</span> = the self-correction loop-back</li><li><span class="text-violet-300">purple pulses</span> = Mesh API calls (tokens & latency in the bar)</li></ul></div>`;
 }
 
 // ------------------------------------------------------------------ timeline
@@ -509,7 +508,7 @@ function renderTimeline() {
   const t0 = ts(X.steps[0].item);
   list.innerHTML = X.steps.map((s, i) => {
     const node = NODE[s.node]; const color = KIND[node?.kind || 'io'].color;
-    return `<button class="tl-row tone-${s.tone}" data-step="${i}"><span class="tl-time">+${((ts(s.item) - t0) / 1000).toFixed(1)}s</span><span class="tl-node" style="--c:${s.item.kind === 'trace' ? '#a78bfa' : color}">${esc(s.item.kind === 'trace' ? 'Mesh' : node?.label || s.node)}</span><span class="tl-text">${esc(s.text)}</span></button>`;
+    return `<button class="tl-row tone-${s.tone}" data-step="${i}"><span class="tl-time">+${((ts(s.item) - t0) / 1000).toFixed(1)}s</span><span class="tl-node" style="--c:${s.item.kind === 'trace' ? 'rgb(var(--purple))' : color}">${esc(s.item.kind === 'trace' ? 'Mesh' : node?.label || s.node)}</span><span class="tl-text">${esc(s.text)}</span></button>`;
   }).join('');
 }
 function renderTimelineCursor() {

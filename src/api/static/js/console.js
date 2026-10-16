@@ -2,6 +2,8 @@
 // governance / audit / telemetry / follow-up tabs, source inspector.
 'use strict';
 import { $, $$, ApiError, api, cite, emit, esc, fmt, on, pct, setApiKey, store, toast, withKey } from './core.js';
+import { renderInsights } from './charts.js';
+import { openLens } from './lens.js';
 
 const NODES = [
   { id: 'input_guard', label: 'Input shield', sub: 'injection · harm · PII' },
@@ -13,7 +15,7 @@ const NODES = [
   { id: 'output_guard', label: 'Output shield', sub: 'redact · govern' },
 ];
 const TABS = [
-  ['report', 'Report'], ['claims', 'Claim Matrix'], ['contradictions', 'Contradiction Radar'], ['sources', 'Sources'],
+  ['report', 'Report'], ['insights', 'Insights'], ['claims', 'Claim Matrix'], ['contradictions', 'Contradiction Radar'], ['sources', 'Sources'],
   ['governance', 'Governance'], ['audit', 'Audit Trail'], ['telemetry', 'Telemetry'], ['followup', 'Follow-up'],
 ];
 const PRESETS = [
@@ -84,7 +86,7 @@ export async function loadHealth() {
   try {
     const h = await api('/api/health');
     store.health = h;
-    const pill = (ok, label) => `<span class="rounded-full border px-2 py-0.5 ${ok ? 'border-emerald-500/40 text-emerald-300' : 'border-amber-500/40 text-amber-300'}">${esc(label)}</span>`;
+    const pill = (ok, label) => `<span class="rounded-full px-2.5 py-1 ${ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}">${esc(label)}</span>`;
     $('#pills').innerHTML = [
       pill(h.mesh_configured, h.mesh_configured ? `Mesh · ${h.config.default_model}` : 'Mesh key missing'),
       pill(true, `Search · ${h.search_providers.join(' → ')}`),
@@ -92,6 +94,10 @@ export async function loadHealth() {
       pill(true, `Guardrails · ${h.config.policy_version}`),
     ].join('');
     if (!h.mesh_configured) $('#runHint').textContent = 'Set MESH_API_KEY to enable research runs. Past runs remain browsable.';
+    const chip = $('#statusBtn');
+    if (chip && !chip.dataset.state) chip.dataset.state = h.mesh_configured ? 'ready' : 'warn';
+    const badge = $('#dataBadge');
+    if (badge && badge.textContent === 'Connecting…') badge.textContent = h.mesh_configured ? `Ready · ${h.config.default_model}` : 'Mesh key needed';
   } catch (e) { toast(`Health check failed: ${e.message}`); }
 }
 async function loadDocs() {
@@ -194,7 +200,13 @@ async function loadAll() {
 }
 
 // ------------------------------------------------------------------ tab renderers
-function renderAll() { renderReport(); renderClaims(); renderContradictions(); renderSources(); renderGovernance(); renderAudit(); renderTelemetry(); renderFollowup(); }
+function renderAll() { renderReport(); renderInsightsTab(); renderClaims(); renderContradictions(); renderSources(); renderGovernance(); renderAudit(); renderTelemetry(); renderFollowup(); }
+
+function renderInsightsTab() {
+  const el = $('[data-panel="insights"]');
+  if (!store.runId) { el.innerHTML = empty('Open a run to see its insights.'); return; }
+  renderInsights(el, { run: store.run, events: store.events, traces: store.traces, sources: C.sources });
+}
 
 function renderReport() {
   const el = $('[data-panel="report"]'); const run = store.run; const r = run?.report;
@@ -208,7 +220,7 @@ function renderReport() {
   el.innerHTML = `<div class="fade-in space-y-5">
     <div class="flex flex-wrap items-start gap-3"><div><div class="text-[11px] uppercase tracking-wider text-indigo-300">Verified executive report</div>
       <h2 class="mt-1 text-xl font-semibold tracking-tight">${esc(r.title)}</h2><div class="mt-1 text-xs text-slate-500">${esc(r.query)}</div></div>
-      <div class="ml-auto flex gap-2"><button class="btn-ghost" data-goto="explorer">Trace this run</button><a href="${esc(withKey(`/api/runs/${r.run_id}/report.pdf`))}" class="btn-ghost">Export PDF</a></div></div>
+      <div class="ml-auto flex flex-wrap gap-2"><button class="btn-ghost" data-goto="explorer">Trace this run</button><button class="btn-ghost" data-open-lens>Evidence Lens</button><a href="${esc(withKey(`/api/runs/${r.run_id}/report.pdf`))}" class="btn-ghost">Export PDF</a><a href="${esc(withKey(`/api/runs/${r.run_id}/bundle`))}" class="btn-ghost">Audit bundle</a></div></div>
     <div class="rounded-xl border border-ink-700 bg-ink-850 p-4 text-[15px] leading-relaxed">${cite(r.executive_summary)}</div>
     ${r.key_findings.length ? `<div><div class="panel-h mb-2">Key findings</div><ul class="space-y-1.5 text-sm">${r.key_findings.map((f) => `<li class="flex gap-2"><span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-indigo-400"></span><span>${cite(f)}</span></li>`).join('')}</ul></div>` : ''}
     <div class="space-y-3">${r.sections.map((s) => `<div class="rounded-xl border border-ink-700 p-4">
@@ -231,7 +243,7 @@ function renderClaims() {
     <span class="ml-auto text-slate-500">${C.claims.length} claims across iteration(s) ${its.join(', ')}</span></div>
     <div class="overflow-auto scroll-thin"><table class="w-full text-left text-xs"><thead class="text-[10px] uppercase tracking-wider text-slate-500"><tr>
       <th class="py-2 pr-3">Claim</th><th class="pr-3">It.</th><th class="pr-3">Verdict</th><th class="w-24 pr-3">Confidence</th><th class="pr-3">Evidence span</th><th>Report</th></tr></thead>
-    <tbody class="divide-y divide-ink-700">${rows.map((c) => `<tr class="align-top">
+    <tbody class="divide-y divide-ink-700">${rows.map((c) => `<tr class="cursor-pointer align-top hover:bg-ink-850" data-lens-claim="${esc(c.claim_id)}" title="Open in Evidence Lens">
       <td class="max-w-sm py-2 pr-3"><div class="font-mono text-[10px] text-slate-500">${esc(c.claim_id)} · ${esc(c.sub_question_id)}</div><div class="text-slate-200">${esc(c.claim_text)}</div>
         <div class="mt-1 flex flex-wrap gap-1">${(c.cited_source_ids || []).map((s) => `<span class="chip" data-src="${esc(s)}">${esc(s)}</span>`).join('') || '<span class="text-[10px] text-rose-300">no citation</span>'}</div></td>
       <td class="pr-3 text-slate-400">${c.iteration}</td>
@@ -369,26 +381,8 @@ function renderFollowup() {
   });
 }
 
-// ------------------------------------------------------------------ source inspector
-async function openSource(sid) {
-  if (!store.runId) return;
-  try {
-    const src = await api(`/api/runs/${store.runId}/sources/${encodeURIComponent(sid)}`);
-    const ranges = (src.verified_quotes || []).filter((q) => q.start !== null && q.end !== null).sort((a, b) => a.start - b.start);
-    let html = ''; let cursor = 0; const text = src.content || '';
-    for (const r of ranges) { if (r.start < cursor) continue; html += esc(text.slice(cursor, r.start)) + `<mark class="q-${esc(r.verdict)}" title="${esc(r.claim_id)}">${esc(text.slice(r.start, r.end))}</mark>`; cursor = r.end; }
-    html += esc(text.slice(cursor)).replaceAll('[removed by DeepDive content shield: suspected prompt-injection text]', '<span class="shield-mark">[removed by content shield: suspected prompt-injection text]</span>');
-    $('#drawer').innerHTML = `<div class="flex items-start gap-3"><div><div class="font-mono text-xs text-indigo-300">${esc(src.source_id)}</div><h3 class="mt-1 text-base font-semibold">${esc(src.title)}</h3>
-      <a href="${esc(src.url.startsWith('http') ? src.url : '#')}" target="_blank" rel="noopener noreferrer nofollow" class="break-all text-xs text-slate-400 hover:text-slate-200">${esc(src.url)}</a></div>
-      <button id="closeDrawer" class="ml-auto rounded-md border border-ink-600 px-2 py-1 text-xs">close</button></div>
-      <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">${tierBadge(src.authority_tier)}<span>authority ${Number(src.authority_score).toFixed(2)}</span><span class="font-mono text-[10px] text-slate-500">${esc(src.authority_rule)}</span><span class="text-slate-500">via ${esc(src.retrieval_tier)}</span></div>
-      <div class="mt-2 text-[11px] text-slate-500">${src.evidence_spans.length} indexed span(s) · ${ranges.length} verified quote(s) highlighted by verdict</div>
-      <div class="mt-4 whitespace-pre-wrap rounded-lg border border-ink-700 bg-ink-950 p-4 text-[13px] leading-relaxed text-slate-300">${html}</div>`;
-    $('#drawer').classList.remove('hidden'); $('#drawerBackdrop').classList.remove('hidden');
-    $('#closeDrawer').addEventListener('click', closeDrawer);
-  } catch (e) { toast(e.message); }
-}
-function closeDrawer() { $('#drawer').classList.add('hidden'); $('#drawerBackdrop').classList.add('hidden'); }
+// ------------------------------------------------------------------ source inspector -> Evidence Lens
+function openSource(sid) { if (store.runId) openLens({ runId: store.runId, sourceId: sid }); }
 
 // ------------------------------------------------------------------ API key modal
 function showKeyModal() { $('#keyModal').classList.remove('hidden'); $('#keyInput').focus(); }
@@ -405,7 +399,9 @@ function wireKeyModal() {
 export function initConsole() {
   renderTabs(); wireKeyModal();
   document.addEventListener('click', async (e) => {
-    const chip = e.target.closest('[data-src]'); if (chip && !e.target.closest('#view-explorer')) { openSource(chip.dataset.src); return; }
+    const chip = e.target.closest('[data-src]'); if (chip && !e.target.closest('#view-explorer')) { e.stopPropagation(); openSource(chip.dataset.src); return; }
+    const lc = e.target.closest('#view-console [data-lens-claim]'); if (lc) { openLens({ runId: store.runId, claimId: lc.dataset.lensClaim }); return; }
+    if (e.target.closest('[data-open-lens]') && store.runId) { openLens({ runId: store.runId }); return; }
     const run = e.target.closest('[data-run]'); if (run) { openRun(run.dataset.run); return; }
     const cf = e.target.closest('[data-cf]'); if (cf) { C.claimFilter = cf.dataset.cf; renderClaims(); return; }
     if (e.target.closest('[data-verify-chain]') && store.runId) {
@@ -416,8 +412,7 @@ export function initConsole() {
     const row = e.target.closest('.audit-row'); if (row) row.querySelector('pre')?.classList.toggle('hidden');
   });
   document.addEventListener('change', (e) => { const d = e.target.closest('[data-doc]'); if (d) { d.checked ? C.selectedDocs.add(d.dataset.doc) : C.selectedDocs.delete(d.dataset.doc); } });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDrawer(); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement === $('#query')) startRun(); });
-  $('#drawerBackdrop').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement === $('#query')) startRun(); });
   $('#runBtn').addEventListener('click', startRun);
   $('#refreshRuns').addEventListener('click', loadRuns);
   $('#fileInput').addEventListener('change', (e) => uploadDocs(e.target.files));

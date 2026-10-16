@@ -55,8 +55,10 @@ def test_health_exposes_config_without_secrets(make_settings):
 
 def test_dashboard_renders(client):
     html = client.get("/").text
-    for marker in ("Live Demo", "LangGraph execution", "How DeepDive works", "archSvg", "dScenarios", "/static/js/app.js"):
+    for marker in ("Live Demo", "LangGraph execution", "How DeepDive works", "archSvg", "dScenarios", "cmdkInput", "lensBody", "/static/js/app.js"):
         assert marker in html
+    for module in ("palette", "lens", "charts"):
+        assert client.get(f"/static/js/{module}.js").status_code == 200
     demo_js = client.get("/static/js/demo.js").text
     assert "SCENARIOS" in demo_js and "/api/research" in demo_js
     console_js = client.get("/static/js/console.js").text
@@ -344,3 +346,20 @@ def test_governance_records_query_redaction_and_upload_findings(client, containe
     assert gov["summary"]["input_screen"] == "passed_with_redactions"
     assert gov["summary"]["injections_neutralized"] >= 1
     assert "cfo@corp.example" not in client.get(f"/api/runs/{run_id}").json()["query"]
+
+
+def test_audit_bundle_export(client, container):
+    import hashlib
+
+    run_id = _run(client, container)
+    response = client.get(f"/api/runs/{run_id}/bundle")
+    assert response.status_code == 200
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.headers["x-bundle-sha256"] == hashlib.sha256(response.content).hexdigest()
+    bundle = response.json()
+    assert bundle["bundle_version"].startswith("deepdive-audit-bundle")
+    assert bundle["run"]["id"] == run_id and bundle["run"]["report"]
+    assert bundle["claims"] and bundle["sources"] and bundle["audit_events"]
+    assert bundle["audit_chain"]["valid"] is True
+    assert "content" not in bundle["sources"][0]
+    assert client.get("/api/runs/run_missing/bundle").status_code == 404

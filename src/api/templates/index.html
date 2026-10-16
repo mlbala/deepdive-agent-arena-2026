@@ -5,49 +5,78 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="no-referrer" />
   <title>DeepDive · Self-Verifying Research</title>
+  <meta name="color-scheme" content="light dark" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script nonce="{{ csp_nonce }}">
+    // Apply the saved theme before first paint (no flash). "auto" follows the OS.
+    try { const t = localStorage.getItem('deepdive_theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (_) {}
+  </script>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script nonce="{{ csp_nonce }}">
+    // Every colour utility resolves to a theme token, so light and dark come from one stylesheet.
+    const v = (name) => `rgb(var(--${name}) / <alpha-value>)`;
     tailwind.config = {
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'], mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] },
-          colors: { ink: { 950: '#07090d', 900: '#0b0e14', 850: '#0f131b', 800: '#131823', 700: '#1b2230', 600: '#263042', 500: '#3a4559' } },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"SF Pro Display"', 'Inter', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+            mono: ['"SF Mono"', 'ui-monospace', '"JetBrains Mono"', 'Menlo', 'monospace'],
+          },
+          colors: {
+            ink: { 950: v('ink-950'), 900: v('ink-900'), 850: v('ink-850'), 800: v('ink-800'), 700: v('ink-700'), 600: v('ink-600'), 500: v('ink-500') },
+            slate: { 50: v('t-1'), 100: v('t-1'), 200: v('t-1'), 300: v('t-2'), 400: v('t-3'), 500: v('t-4'), 600: v('t-5') },
+            indigo: { 100: v('accent-t'), 200: v('accent-t'), 300: v('accent-t'), 400: v('accent'), 500: v('accent'), 600: v('accent'), 700: v('accent'), 950: v('accent-deep') },
+            emerald: { 200: v('green-t'), 300: v('green-t'), 400: v('green-t'), 500: v('green'), 600: v('green'), 950: v('green-deep') },
+            amber: { 200: v('orange-t'), 300: v('orange-t'), 400: v('orange'), 500: v('orange'), 950: v('orange-deep') },
+            rose: { 100: v('red-t'), 200: v('red-t'), 300: v('red-t'), 400: v('red-t'), 500: v('red'), 950: v('red-deep') },
+            violet: { 200: v('purple-t'), 300: v('purple-t'), 500: v('purple'), 600: v('purple') },
+            sky: { 300: v('cyan-t'), 500: v('cyan') },
+            pink: { 300: v('pink-t'), 500: v('pink') },
+          },
         },
       },
     };
   </script>
   <link rel="stylesheet" href="/static/css/app.css" />
 </head>
-<body class="h-full font-sans text-slate-200 antialiased">
+<body class="min-h-full font-sans text-slate-200 antialiased">
   <!-- ================================================================ header -->
-  <header class="sticky top-0 z-30 border-b border-ink-700/80 bg-ink-950/85 backdrop-blur">
-    <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3">
-      <div class="flex items-center gap-3">
-        <div class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 text-sm font-bold">DD</div>
-        <div>
-          <div class="text-sm font-semibold tracking-tight">DeepDive <span class="ml-1 rounded border border-indigo-500/40 px-1.5 py-px font-mono text-[10px] text-indigo-300">TRACK 01</span></div>
-          <div class="hidden text-[11px] text-slate-400 sm:block">Self-verifying multi-agent research · Agent Arena 2026</div>
-        </div>
-      </div>
-      <nav class="order-last flex w-full rounded-xl border border-ink-700 bg-ink-900 p-1 sm:order-none sm:mx-auto sm:w-auto" role="tablist" aria-label="Views">
-        <button class="view-tab flex-1 sm:flex-none" data-view="demo" aria-selected="true">Live Demo</button>
-        <button class="view-tab flex-1 sm:flex-none" data-view="explorer" aria-selected="false">How it works</button>
-        <button class="view-tab flex-1 sm:flex-none" data-view="console" aria-selected="false">Console</button>
+  <header class="glass-nav sticky top-0 z-30">
+    <div class="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 px-5 py-2.5">
+      <a href="/?view=demo" class="flex items-center gap-2.5" aria-label="DeepDive home">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M20 20l-5-5M8 10.6l1.8 1.8 3.4-3.6"/></svg></span>
+        <span class="text-[15px] font-semibold tracking-tight text-slate-100">DeepDive</span>
+        <span class="track-chip">Track 01</span>
+      </a>
+      <nav class="segmented order-last w-full sm:order-none sm:mx-auto sm:w-auto" role="tablist" aria-label="Views">
+        <button class="view-tab" data-view="demo" aria-selected="true">Live Demo</button>
+        <button class="view-tab" data-view="explorer" aria-selected="false">How it works</button>
+        <button class="view-tab" data-view="console" aria-selected="false">Console</button>
       </nav>
-      <span id="dataBadge" class="hidden rounded-full border border-ink-600 px-2.5 py-1 font-mono text-[10.5px] text-slate-400 md:inline-block" title="Where the data on screen comes from"></span>
-      <div id="pills" class="hidden flex-wrap items-center gap-2 text-[11px] 2xl:flex"></div>
-      <a href="/docs" class="ml-auto rounded-md border border-ink-600 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-ink-800 sm:ml-0">API docs</a>
+      <div class="ml-auto flex items-center gap-1.5 sm:ml-0">
+        <button id="cmdkBtn" class="cmdk-btn" aria-label="Open command palette" aria-keyshortcuts="Meta+K Control+K">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/></svg>
+          <span class="hidden lg:inline">Search or run…</span><kbd class="hidden lg:inline">⌘K</kbd>
+        </button>
+        <button id="themeBtn" class="icon-btn" aria-label="Theme: auto" title="Theme"></button>
+        <button id="statusBtn" class="status-chip" aria-haspopup="dialog" aria-controls="statusPop"><span class="status-dot"></span><span id="dataBadge">Connecting…</span></button>
+        <a href="/docs" class="icon-btn" aria-label="API docs" title="API docs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></a>
+      </div>
     </div>
   </header>
+  <div id="statusPop" class="popover hidden" role="dialog" aria-label="System status">
+    <div class="panel-h">System</div>
+    <div id="pills" class="mt-2 flex flex-wrap gap-1.5 text-[11.5px]"></div>
+    <p class="mt-3 text-[12px] leading-relaxed text-slate-400">Every model call goes through the Mesh API gateway. Retrieval cascades Tavily → DuckDuckGo → offline corpus. Every decision is written to a hash-chained audit trail.</p>
+  </div>
 
   <!-- ============================================================= LIVE DEMO -->
   <div id="view-demo" class="mx-auto max-w-[1600px] space-y-4 p-4">
-    <section class="flex flex-wrap items-end gap-3">
+    <section class="flex flex-wrap items-end gap-4 pb-1 pt-4">
       <div class="min-w-0">
-        <h1 class="text-lg font-semibold tracking-tight">Watch DeepDive check every claim, live</h1>
-        <p class="max-w-4xl text-[13px] text-slate-400">AI search engines fully back only <b class="text-slate-200">51.5%</b> of their sentences with citations, and only <b class="text-slate-200">74.5%</b> of their citations support the sentence they're attached to (<a class="link" href="https://arxiv.org/abs/2304.09848" target="_blank" rel="noopener noreferrer">Liu et al., 2023</a>). DeepDive publishes a sentence only after it finds a verbatim quote for it in the cited source.</p>
+        <h1 class="hero-title">Research you can <span class="hero-accent">verify</span>.</h1>
+        <p class="hero-sub">AI search engines fully back only <b class="text-slate-200">51.5%</b> of their sentences with citations, and only <b class="text-slate-200">74.5%</b> of their citations support the sentence they're attached to (<a class="link" href="https://arxiv.org/abs/2304.09848" target="_blank" rel="noopener noreferrer">Liu et al., 2023</a>). DeepDive publishes a sentence only after it finds a verbatim quote for it in the cited source.</p>
       </div>
       <div class="ml-auto hidden flex-wrap items-center gap-2 text-[11px] text-slate-500 md:flex"><kbd>Space</kbd> play/pause <kbd>→</kbd> next step <kbd>R</kbd> reset</div>
     </section>
@@ -155,6 +184,7 @@
           <div data-panel="claims" class="hidden"></div>
           <div data-panel="contradictions" class="hidden"></div>
           <div data-panel="sources" class="hidden"></div>
+          <div data-panel="insights" class="hidden"></div>
           <div data-panel="governance" class="hidden"></div>
           <div data-panel="audit" class="hidden"></div>
           <div data-panel="telemetry" class="hidden"></div>
@@ -208,8 +238,17 @@
   </div>
 
   <!-- Overlays -->
-  <div id="drawerBackdrop" class="fixed inset-0 z-40 hidden bg-black/50"></div>
-  <aside id="drawer" class="fixed right-0 top-0 z-50 hidden h-full w-full max-w-2xl overflow-auto border-l border-ink-700 bg-ink-900 p-5 scroll-thin"></aside>
+  <div id="lens" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-label="Evidence Lens"><div class="sheet lens-sheet" id="lensBody"></div></div>
+  <div id="cmdk" class="sheet-backdrop cmdk-backdrop hidden" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="cmdk">
+      <div class="cmdk-input"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4-4"/></svg>
+        <input id="cmdkInput" placeholder="Run a scenario, open a run, find a claim or source…" autocomplete="off" spellcheck="false" aria-label="Search commands" /><kbd>esc</kbd></div>
+      <div id="cmdkList" class="cmdk-list" role="listbox"></div>
+      <div class="cmdk-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> run</span><span><kbd>?</kbd> shortcuts</span></div>
+    </div>
+  </div>
+  <div id="shortcuts" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><div class="sheet max-w-lg p-6" id="shortcutsBody"></div></div>
+  <div id="vizTip" class="viz-tip hidden" role="tooltip"></div>
   <div id="toast" class="fixed bottom-4 left-1/2 z-50 hidden max-w-[90vw] -translate-x-1/2 rounded-lg border border-rose-500/40 bg-rose-950/90 px-4 py-2 text-sm text-rose-100" role="status"></div>
   <div id="keyModal" class="fixed inset-0 z-[60] hidden grid place-items-center bg-black/60 p-4">
     <form id="keyForm" class="panel w-full max-w-sm p-5">

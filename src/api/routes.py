@@ -27,9 +27,11 @@ follow-up and upload routes are rate-limited per client; uploads pass the conten
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -288,6 +290,36 @@ async def run_audit_verify(run_id: str, request: Request) -> dict[str, Any]:
     svc = services(request)
     _run_or_404(svc, run_id)
     return svc.store.verify_audit_chain(run_id)
+
+
+@router.get("/api/runs/{run_id}/bundle")
+async def run_bundle(run_id: str, request: Request) -> Response:
+    """Self-contained audit bundle: run, report, claims, sources, audit trail + chain verification."""
+    svc = services(request)
+    run = _run_or_404(svc, run_id)
+    bundle = {
+        "bundle_version": "deepdive-audit-bundle/1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "deepdive_version": __version__,
+        "run": run,
+        "claims": svc.store.list_claims(run_id),
+        "sources": svc.store.list_sources(run_id),
+        "audit_events": svc.store.list_audit_events(run_id),
+        "audit_chain": svc.store.verify_audit_chain(run_id),
+        "mesh_usage": svc.store.trace_summary(run_id),
+        "followups": svc.store.list_followups(run_id),
+        "policy": svc.settings.governance_policy(),
+    }
+    body = json.dumps(bundle, indent=2, default=str).encode("utf-8")
+    digest = hashlib.sha256(body).hexdigest()
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="deepdive-{run_id}-audit-bundle.json"',
+            "X-Bundle-SHA256": digest,
+        },
+    )
 
 
 @router.get("/api/runs/{run_id}/governance")
