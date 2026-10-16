@@ -1,0 +1,36 @@
+# Keep the build context lean and secret-free.
+.git
+.github
+.gitignore
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Secrets & local state
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.sqlite*
+chroma/
+uploads/
+exports/
+
+# Python artefacts & environments
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# Not needed at runtime
+tests/
+CLAUDE.md
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,39 @@
+# One-command full stack:   docker compose up --build      -> http://localhost:8000
+# Benchmark in a container: docker compose --profile eval run --rm eval
+#
+# Secrets come from .env (copy .env.example). MESH_API_KEY is required for research runs;
+# TAVILY_API_KEY is optional (DuckDuckGo + BeautifulSoup fallback otherwise).
+
+x-deepdive-common: &deepdive-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: deepdive-agent-arena:latest
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    DATABASE_URL: sqlite:////app/data/deepdive.db
+
+services:
+  deepdive:
+    <<: *deepdive-common
+    container_name: deepdive
+    ports:
+      - "${DEEPDIVE_PORT:-8000}:8000"
+    volumes:
+      - deepdive-data:/app/data
+    restart: unless-stopped
+
+  eval:
+    <<: *deepdive-common
+    profiles: ["eval"]
+    command: ["python", "-m", "eval.run_eval"]
+    # Writes eval/latest_results.json back to the host. On Linux run with
+    # HOST_UID=$(id -u) HOST_GID=$(id -g) so the mounted directory stays writable.
+    user: "${HOST_UID:-10001}:${HOST_GID:-10001}"
+    volumes:
+      - ./eval:/app/eval
+
+volumes:
+  deepdive-data:
