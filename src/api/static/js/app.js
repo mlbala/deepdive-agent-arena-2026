@@ -5,7 +5,8 @@ import { $, $$, emit, on, store, toast } from './core.js';
 import { initChartTips } from './charts.js';
 import { initConsole, openRun, selectTab } from './console.js';
 import { SCENARIOS, demoReplay, demoShown, initDemo } from './demo.js';
-import { explorerShown, initExplorer } from './explorer.js';
+import { initArchitecture, refreshTimelineIfVisible, showArchView } from './architecture.js';
+import { explorerFocus, explorerRunId, explorerShown, initExplorer } from './explorer.js';
 import { closeLens, initLens, openLens } from './lens.js';
 import { closePalette, initPalette, openPalette } from './palette.js';
 
@@ -16,12 +17,12 @@ function showView(view, params = {}) {
   currentView = view;
   VIEWS.forEach((v) => document.getElementById(`view-${v}`).classList.toggle('hidden', v !== view));
   $$('[data-view]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === view)));
-  if (view === 'explorer') explorerShown(params);
+  if (view === 'explorer') { explorerShown(params); showArchView(params.xview || document.body.dataset.xview || 'graph'); }
   if (view === 'demo') demoShown(params);
   if (view === 'console' && params.tab) selectTab(params.tab);
   const url = new URL(location.href);
   url.searchParams.set('view', view);
-  ['run', 'step', 'focus', 'tab', 'scenario', 'autorun', 'lens', 'cmdk'].forEach((k) => { if (!params[k]) url.searchParams.delete(k); });
+  ['run', 'step', 'focus', 'tab', 'scenario', 'autorun', 'lens', 'cmdk', 'xview'].forEach((k) => { if (!params[k]) url.searchParams.delete(k); });
   history.replaceState(null, '', url);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -80,9 +81,9 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(SCENARIOS); return; }
-  if (e.key === 'Escape') { closePalette(); closeShortcuts(); closeLens(); $('#statusPop').classList.add('hidden'); return; }
+  if (e.key === 'Escape') { closePalette(); closeShortcuts(); closeLens(); $('#statusPop').classList.add('hidden'); $('#archSheet').classList.add('hidden'); return; }
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (!$('#lens').classList.contains('hidden') || !$('#cmdk').classList.contains('hidden')) return;
+  if (!$('#lens').classList.contains('hidden') || !$('#cmdk').classList.contains('hidden') || !$('#archSheet').classList.contains('hidden')) return;
   if (e.key === '1') showView('demo');
   if (e.key === '2') showView('explorer');
   if (e.key === '3') showView('console');
@@ -106,6 +107,8 @@ applyTheme(currentTheme());
 
 initConsole();
 initExplorer();
+initArchitecture({ getRun: explorerRunId, focusNode: explorerFocus });
+on('explorer-run', refreshTimelineIfVisible);
 initDemo();
 initLens();
 initPalette();

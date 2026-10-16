@@ -31,6 +31,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -65,7 +66,8 @@ _TRANSIENT_ERRORS: tuple[type[Exception], ...] = (
     openai.InternalServerError,
 )
 _PREVIEW_CHARS = 600
-_EMBED_BATCH = 64
+_EMBED_BATCH = 96
+_EMBED_CONCURRENCY = 4
 
 
 class JSONExtractionError(ValueError):
@@ -200,10 +202,12 @@ class _CallUsage:
     total_tokens: int = 0
     estimated: bool = False
 
-    def add(self, response: Any, prompt_text: str, completion_text: str) -> None:
+    def add(self, response: Any, prompt_text: str, completion_text: str, *, embedding: bool = False) -> None:
         usage = getattr(response, "usage", None)
         prompt = getattr(usage, "prompt_tokens", None) if usage is not None else None
         completion = getattr(usage, "completion_tokens", None) if usage is not None else None
+        if embedding and prompt is not None:
+            completion = 0  # embeddings have no completion tokens; reported usage is exact
         if prompt is None or completion is None:
             self.estimated = True
             prompt = _estimate_tokens(prompt_text)
@@ -473,34 +477,43 @@ class MeshGateway:
         """Embed texts through Mesh API in batches; returns one vector per input."""
         model = model_override or self.settings.mesh_embedding_model
         self._enforce_governance(model, run_id, operation="embedding")
-        vectors: list[list[float]] = []
-        for offset in range(0, len(texts), _EMBED_BATCH):
-            batch = [t if t.strip() else " " for t in texts[offset : offset + _EMBED_BATCH]]
-            started = time.perf_counter()
-            usage = _CallUsage()
-            try:
-                response, attempts = self._call_with_backoff(
-                    partial(self.client.embeddings.create, model=model, input=batch)
-                )
-            except (MeshGatewayError, openai.BadRequestError) as exc:
-                self._emit_trace(
-                    run_id=run_id, agent_name=agent_name, operation="embedding", model=model,
-                    status="error", attempts=1, repair_attempts=0, started=started, usage=usage,
-                    error=str(exc), request_preview=f"{len(batch)} texts", response_preview="",
-                )
-                if isinstance(exc, MeshGatewayError):
-                    raise
-                raise MeshGatewayError(f"Mesh embeddings request rejected: {exc}") from exc
-            data = sorted(response.data, key=lambda d: getattr(d, "index", 0))
-            vectors.extend(list(d.embedding) for d in data)
-            usage.add(response, "".join(batch), "")
+        batches = [
+            [t if t.strip() else " " for t in texts[offset : offset + _EMBED_BATCH]]
+            for offset in range(0, len(texts), _EMBED_BATCH)
+        ]
+        if len(batches) <= 1:
+            results = [self._embed_batch(b, model=model, run_id=run_id, agent_name=agent_name) for b in batches]
+        else:  # independent batches run concurrently; order is preserved by map()
+            with ThreadPoolExecutor(max_workers=min(_EMBED_CONCURRENCY, len(batches))) as pool:
+                results = list(pool.map(lambda b: self._embed_batch(b, model=model, run_id=run_id, agent_name=agent_name), batches))
+        vectors: list[list[float]] = [v for batch_vectors in results for v in batch_vectors]
+        return vectors
+
+    def _embed_batch(self, batch: list[str], *, model: str, run_id: str | None, agent_name: str) -> list[list[float]]:
+        started = time.perf_counter()
+        usage = _CallUsage()
+        try:
+            response, attempts = self._call_with_backoff(
+                partial(self.client.embeddings.create, model=model, input=batch)
+            )
+        except (MeshGatewayError, openai.BadRequestError) as exc:
             self._emit_trace(
                 run_id=run_id, agent_name=agent_name, operation="embedding", model=model,
-                status="success", attempts=attempts, repair_attempts=0, started=started,
-                usage=usage, error=None, request_preview=f"{len(batch)} texts",
-                response_preview=f"{len(data)} vectors x {len(data[0].embedding) if data else 0} dims",
+                status="error", attempts=1, repair_attempts=0, started=started, usage=usage,
+                error=str(exc), request_preview=f"{len(batch)} texts", response_preview="",
             )
-        return vectors
+            if isinstance(exc, MeshGatewayError):
+                raise
+            raise MeshGatewayError(f"Mesh embeddings request rejected: {exc}") from exc
+        data = sorted(response.data, key=lambda d: getattr(d, "index", 0))
+        usage.add(response, "".join(batch), "", embedding=True)
+        self._emit_trace(
+            run_id=run_id, agent_name=agent_name, operation="embedding", model=model,
+            status="success", attempts=attempts, repair_attempts=0, started=started,
+            usage=usage, error=None, request_preview=f"{len(batch)} texts",
+            response_preview=f"{len(data)} vectors x {len(data[0].embedding) if data else 0} dims",
+        )
+        return [list(d.embedding) for d in data]
 
     # -- tracing -------------------------------------------------------------
     def _emit_trace(

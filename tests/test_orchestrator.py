@@ -200,3 +200,42 @@ def test_eval_harness_smoke(tmp_path, monkeypatch):
     assert results["aggregate"]["questions"] == 2
     great_wall = next(r for r in results["questions"] if r["id"] == "adversarial-great-wall")
     assert great_wall["trap_pass"] is True and great_wall["contradiction_surfaced"] is True
+
+
+def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
+    import typing
+
+    from src.agents import catalog, drafter, verifier
+    from src.schemas.state import ResearchState
+
+    orchestrator, _, _ = make_orchestrator(grounding_threshold=0.9)
+    arch = catalog.describe_architecture(orchestrator, orchestrator.settings)
+    graph_nodes = {n["id"] for n in arch["graph"]["nodes"]}
+    assert set(NODES) <= graph_nodes
+    assert {(e["source"], e["target"]) for e in arch["graph"]["edges"] if e["conditional"]} >= {
+        ("verifier", "researcher"), ("verifier", "synthesizer"), ("input_guard", "planner"), ("input_guard", "__end__")}
+
+    # NODE_WRITES must describe exactly what nodes really return (exercise a loop-back run).
+    channels = set(typing.get_type_hints(ResearchState))
+    for node, keys in catalog.NODE_WRITES.items():
+        assert node in graph_nodes and set(keys) <= channels
+    seen: dict[str, set[str]] = {}
+    from eval.simulated_llm import HeuristicMeshSimulator
+
+    looping, _, _ = make_orchestrator(client=HeuristicMeshSimulator(hallucinate_first_draft=True), grounding_threshold=0.9)
+    for node, update in looping.stream("How much solar PV capacity was added globally in 2023?"):
+        if node in catalog.NODE_WRITES:
+            assert set(update) <= set(catalog.NODE_WRITES[node]), (node, set(update) - set(catalog.NODE_WRITES[node]))
+            seen.setdefault(node, set()).update(update)
+    assert set(seen) == set(catalog.NODE_WRITES)
+
+    agents = {a["id"]: a for a in arch["agents"]}
+    assert agents["drafter"]["prompts"][0]["text"] == drafter.SYSTEM_PROMPT
+    assert [p["text"] for p in agents["verifier"]["prompts"]] == [verifier.CLAIM_PROMPT, verifier.ENTAILMENT_PROMPT, verifier.CONTRADICTION_PROMPT]
+    assert all(a["model"] in orchestrator.settings.allowed_model_set for a in arch["agents"] if a["llm"])
+    state = {c["name"]: c for c in arch["state"]}
+    assert state["sources"]["reducer"] == "merge_dicts" and state["audit_log"]["reducer"] == "append_list"
+    assert state["query"]["reducer"] == "last write wins" and state["query"]["written_by"] == ["input_guard"]
+    assert {f["name"] for f in arch["contracts"]["ClaimJudgement" + "Output"]["fields"]} == {"judgements"}
+    decide = next(w for w in arch["workflow"] if w["id"] == "decide")
+    assert "90%" in decide["branches"][0]["when"]  # thresholds come from live settings

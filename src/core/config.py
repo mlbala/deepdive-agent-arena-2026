@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     search_mode: Literal["auto", "tavily", "ddg", "offline"] = "auto"
     search_max_results: int = Field(default=5, ge=1, le=10)
     fetch_timeout_seconds: float = Field(default=12.0, gt=0)
-    max_document_chars: int = Field(default=24_000, ge=1_000)
+    max_document_chars: int = Field(default=12_000, ge=1_000)  # per web page; evidence sits near the top
 
     # --- Evidence index ------------------------------------------------------
     vector_backend: Literal["hybrid", "tfidf"] = "hybrid"

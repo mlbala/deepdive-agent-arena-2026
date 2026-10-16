@@ -198,14 +198,22 @@
   <div id="view-explorer" class="mx-auto hidden max-w-[1600px] space-y-4 p-4">
     <section class="flex flex-wrap items-end gap-3">
       <div>
-        <h1 class="text-lg font-semibold tracking-tight">How DeepDive works</h1>
-        <p class="text-[13px] text-slate-400">Hover or click any box to see what it does and its live numbers. Press <kbd>Space</kbd> to trace a real run event by event, straight from the hash-chained audit trail.</p>
+        <h1 class="hero-title" style="font-size:clamp(26px,3vw,38px)">How DeepDive works</h1>
+        <p class="hero-sub" style="font-size:15px">The agent architecture, generated from the running code: the graph, every step, each agent's real prompt, the shared state, and how runs actually behave.</p>
       </div>
       <div class="hidden flex-wrap items-center gap-2 text-[11px] text-slate-500 md:ml-auto md:flex">
         <kbd>Space</kbd> play/pause <kbd>←</kbd><kbd>→</kbd> step <kbd>R</kbd> reset <kbd>Esc</kbd> unpin
       </div>
     </section>
 
+    <nav id="xSubnav" class="segmented w-full overflow-x-auto sm:w-auto" role="tablist" aria-label="How it works views">
+      <button class="view-tab" data-xview="graph" aria-selected="true">Live graph</button>
+      <button class="view-tab" data-xview="workflow" aria-selected="false">Workflow</button>
+      <button class="view-tab" data-xview="agents" aria-selected="false">Agents &amp; prompts</button>
+      <button class="view-tab" data-xview="state" aria-selected="false">State &amp; contracts</button>
+      <button class="view-tab" data-xview="timeline" aria-selected="false">Run timeline</button>
+    </nav>
+    <div data-xpanel="graph" class="space-y-4">
     <section class="panel flex flex-wrap items-center gap-2 p-3">
       <select id="xRun" class="w-full min-w-0 rounded-md border border-ink-600 bg-ink-900 px-2 py-1.5 text-xs sm:w-auto sm:max-w-md sm:flex-1" aria-label="Run to trace"></select>
       <button id="xRefresh" class="btn-ghost" title="Refresh run list">↻</button>
@@ -235,6 +243,11 @@
       <div class="flex items-center border-b border-ink-700 px-4 py-2"><div class="panel-h">Execution timeline</div><span class="ml-auto text-[11px] text-slate-500">audit events + Mesh calls, in order · click a row to jump</span></div>
       <div id="xTimeline" class="max-h-72 overflow-auto scroll-thin py-1"></div>
     </section>
+    </div>
+    <div data-xpanel="workflow" class="hidden"></div>
+    <div data-xpanel="agents" class="hidden"></div>
+    <div data-xpanel="state" class="hidden"></div>
+    <div data-xpanel="timeline" class="hidden"></div>
   </div>
 
   <!-- Overlays -->
@@ -248,6 +261,7 @@
     </div>
   </div>
   <div id="shortcuts" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><div class="sheet max-w-lg p-6" id="shortcutsBody"></div></div>
+  <div id="archSheet" class="sheet-backdrop hidden" role="dialog" aria-modal="true" aria-label="Contract"><div class="sheet max-w-3xl p-6" id="archSheetBody"></div></div>
   <div id="vizTip" class="viz-tip hidden" role="tooltip"></div>
   <div id="toast" class="fixed bottom-4 left-1/2 z-50 hidden max-w-[90vw] -translate-x-1/2 rounded-lg border border-rose-500/40 bg-rose-950/90 px-4 py-2 text-sm text-rose-100" role="status"></div>
   <div id="keyModal" class="fixed inset-0 z-[60] hidden grid place-items-center bg-black/60 p-4">

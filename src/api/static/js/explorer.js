@@ -1,6 +1,6 @@
 // "How it works" — interactive architecture explorer that replays (or follows live) a real DeepDive run.
 'use strict';
-import { $, $$, api, esc, fmt, on, pct, store, toast, ts } from './core.js';
+import { $, $$, api, emit, esc, fmt, on, pct, store, toast, ts } from './core.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const NODE_H = 62;
@@ -548,7 +548,11 @@ export async function loadRun(runId, { jumpToEnd = false } = {}) {
   renderTimeline();
   go(jumpToEnd ? X.steps.length - 1 : -1, false);
   $('#xRun').value = runId;
+  emit('explorer-run', { runId });
 }
+
+export const explorerRunId = () => X.runId || store.runId;
+export function explorerFocus(node) { X.pinned = node; render(); $('#archSvg').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
 
 function onLiveItem() {
   if (X.runId !== store.runId) return;
@@ -579,7 +583,7 @@ export function initExplorer() {
     catch (err) { toast(err.message); }
   });
   document.addEventListener('keydown', (e) => {
-    if ($('#view-explorer').classList.contains('hidden') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if ($('#view-explorer').classList.contains('hidden') || document.body.dataset.xview !== 'graph' || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
     if (e.code === 'Space') { e.preventDefault(); X.playing ? pause() : play(); }
     if (e.key === 'ArrowRight') { pause(); go(X.i + 1); }
     if (e.key === 'ArrowLeft') { pause(); go(X.i - 1); }

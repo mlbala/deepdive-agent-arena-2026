@@ -39,6 +39,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src import __version__
+from src.agents.catalog import describe_architecture
 from src.api.security import (
     client_identity,
     content_security_policy,
@@ -146,6 +147,23 @@ async def health(request: Request) -> dict[str, Any]:
         "auth_required": bool(svc.settings.api_key_set),
         "active_runs": svc.runs.active_runs(),
     }
+
+
+@router.get("/api/architecture")
+async def architecture(request: Request) -> dict[str, Any]:
+    """Machine-readable agent workflow: graph, steps, agents + prompts, state channels, contracts, policy."""
+    svc = services(request)
+    cached = svc.extra.get("architecture")
+    if cached is None:
+        cached = describe_architecture(svc.orchestrator, svc.settings)
+        svc.extra["architecture"] = cached
+    return cached
+
+
+@router.get("/api/architecture/stats")
+async def architecture_stats(request: Request) -> dict[str, Any]:
+    """Behaviour of every agent across all runs: latency, tokens, success, verdicts, guardrails."""
+    return await asyncio.to_thread(services(request).store.fleet_stats)
 
 
 @router.get("/api/governance/policy")
@@ -283,6 +301,13 @@ async def run_audit(run_id: str, request: Request) -> list[dict[str, Any]]:
     svc = services(request)
     _run_or_404(svc, run_id)
     return svc.store.list_audit_events(run_id)
+
+
+@router.get("/api/runs/{run_id}/timeline")
+async def run_timeline(run_id: str, request: Request) -> dict[str, Any]:
+    svc = services(request)
+    _run_or_404(svc, run_id)
+    return svc.store.run_timeline(run_id)
 
 
 @router.get("/api/runs/{run_id}/audit/verify")

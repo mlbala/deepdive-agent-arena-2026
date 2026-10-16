@@ -632,6 +632,13 @@ class AuditStore:
         }
 
     # -- retention (the only sanctioned deletion path) ------------------------------
+    def fleet_stats(self) -> dict[str, Any]:
+        return fleet_stats(self)
+
+    def run_timeline(self, run_id: str) -> dict[str, Any]:
+        self.get_run(run_id)  # 404 semantics
+        return run_timeline(self, run_id)
+
     def purge_runs_older_than(self, days: int) -> dict[str, int]:
         """Delete whole runs older than `days` across every table (bypasses row guards by design)."""
         cutoff = datetime.now(UTC) - timedelta(days=days)
@@ -723,3 +730,175 @@ class AuditStore:
                 select(FollowUpRecord).where(FollowUpRecord.run_id == run_id).order_by(FollowUpRecord.id)
             )
             return [_row_to_dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Architecture analytics (fleet stats + per-run timeline)
+# ---------------------------------------------------------------------------
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _percentile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    k = (len(ordered) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
+
+
+def _reason_key(reason: str | None) -> str:
+    text = (reason or "").strip()
+    for sep in (" (", ":", ";"):
+        if sep in text:
+            text = text.split(sep, 1)[0]
+    words = text.split()
+    return " ".join(w for w in words if not w.startswith("SRC-"))[:80] or "unspecified"
+
+
+def _node_spans(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    open_nodes: dict[str, dict[str, Any]] = {}
+    spans: list[dict[str, Any]] = []
+    for ev in events:
+        ts = _parse_ts(ev.get("created_at_iso") or ev.get("created_at"))
+        if ts is None:
+            continue
+        if ev["event_type"] == "node_started":
+            open_nodes[ev["node"]] = {"node": ev["node"], "iteration": ev.get("iteration", 0), "start": ts, "message": ev["message"]}
+        elif ev["event_type"] == "node_completed" and ev["node"] in open_nodes:
+            span = open_nodes.pop(ev["node"])
+            span["end"] = ts
+            spans.append(span)
+    return spans
+
+
+def fleet_stats(store: AuditStore) -> dict[str, Any]:
+    """Aggregate agent behaviour across every run in the store."""
+    with store.session() as s:
+        runs = s.execute(select(ResearchRun.status, ResearchRun.iterations, ResearchRun.grounding_rate, ResearchRun.coverage_score)).all()
+        traces = s.execute(select(AgentTrace.agent_name, AgentTrace.operation, AgentTrace.latency_ms, AgentTrace.total_tokens, AgentTrace.status)).all()
+        claims = s.execute(select(ClaimAudit.verdict, ClaimAudit.downgraded, ClaimAudit.downgrade_reason, ClaimAudit.included_in_report)).all()
+        events: list[dict[str, Any]] = [
+            {"run_id": r.run_id, "node": r.node, "event_type": r.event_type, "iteration": r.iteration,
+             "message": r.message, "created_at_iso": r.created_at_iso or _iso(r.created_at), "payload_json": r.payload_json}
+            for r in s.scalars(
+                select(AuditEventRecord)
+                .where(AuditEventRecord.event_type.in_(["node_started", "node_completed", "guardrail_finding"]))
+                .order_by(AuditEventRecord.id)
+            )
+        ]
+
+    by_status: dict[str, int] = {}
+    for status, *_ in runs:
+        by_status[status] = by_status.get(status, 0) + 1
+    completed = [r for r in runs if r[0] == RunStatus.COMPLETED.value]
+    grounding = [r[2] for r in completed if r[2] is not None]
+    coverage = [r[3] for r in completed if r[3] is not None]
+
+    agents: dict[str, dict[str, Any]] = {}
+    for name, operation, latency, tokens, status in traces:
+        a = agents.setdefault(name, {"agent": name, "operation": operation, "calls": 0, "latencies": [], "tokens": 0, "ok": 0, "repaired": 0, "errors": 0})
+        a["calls"] += 1
+        a["latencies"].append(float(latency or 0))
+        a["tokens"] += int(tokens or 0)
+        a["ok"] += status in ("success", "repaired")
+        a["repaired"] += status == "repaired"
+        a["errors"] += status in ("error", "invalid_output")
+    agent_rows = [
+        {
+            "agent": a["agent"], "operation": a["operation"], "calls": a["calls"],
+            "avg_latency_ms": round(sum(a["latencies"]) / a["calls"]),
+            "p95_latency_ms": round(_percentile(a["latencies"], 0.95)),
+            "tokens": a["tokens"], "avg_tokens": round(a["tokens"] / a["calls"]),
+            "success_rate": round(a["ok"] / a["calls"], 4), "repaired": a["repaired"], "errors": a["errors"],
+        }
+        for a in agents.values()
+    ]
+    agent_rows.sort(key=lambda r: -r["tokens"])
+
+    verdicts: dict[str, int] = {}
+    reasons: dict[str, int] = {}
+    published = 0
+    for verdict, downgraded, reason, included in claims:
+        verdicts[verdict] = verdicts.get(verdict, 0) + 1
+        published += bool(included)
+        if downgraded:
+            key = _reason_key(reason)
+            reasons[key] = reasons.get(key, 0) + 1
+
+    guardrails: dict[str, int] = {}
+    by_run: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        if ev["event_type"] == "guardrail_finding":
+            payload = json.loads(str(ev["payload_json"] or "{}"))
+            key = f"{payload.get('guard', '?')}: {payload.get('kind', '?')}"
+            guardrails[key] = guardrails.get(key, 0) + 1
+        else:
+            by_run.setdefault(str(ev["run_id"]), []).append(ev)
+    durations: dict[str, list[float]] = {}
+    for run_events in by_run.values():
+        for span in _node_spans(run_events):
+            durations.setdefault(span["node"], []).append((span["end"] - span["start"]).total_seconds() * 1000)
+    node_rows = {
+        node: {"runs": len(vals), "avg_ms": round(sum(vals) / len(vals)), "p95_ms": round(_percentile(vals, 0.95))}
+        for node, vals in durations.items()
+    }
+    return {
+        "runs": {
+            "total": len(runs), "by_status": by_status,
+            "loop_back_rate": round(sum(1 for r in completed if (r[1] or 0) > 1) / len(completed), 4) if completed else None,
+            "block_rate": round(by_status.get("blocked", 0) / len(runs), 4) if runs else None,
+            "avg_grounding": round(sum(grounding) / len(grounding), 4) if grounding else None,
+            "avg_coverage": round(sum(coverage) / len(coverage), 4) if coverage else None,
+        },
+        "agents": agent_rows,
+        "nodes": node_rows,
+        "claims": {"total": len(claims), "published": published, "by_verdict": verdicts,
+                   "top_downgrade_reasons": sorted(reasons.items(), key=lambda kv: -kv[1])[:6]},
+        "guardrails": dict(sorted(guardrails.items(), key=lambda kv: -kv[1])),
+    }
+
+
+def run_timeline(store: AuditStore, run_id: str) -> dict[str, Any]:
+    """Node spans, Mesh call spans and decision markers on one time axis (ms since run start)."""
+    events = store.list_audit_events(run_id)
+    traces = store.list_traces(run_id)
+    if not events:
+        return {"run_id": run_id, "duration_ms": 0, "spans": [], "llm_calls": [], "markers": [], "lanes": []}
+    t0 = _parse_ts(events[0].get("created_at_iso") or events[0].get("created_at")) or datetime.now(UTC)
+
+    def rel(ts: datetime | None) -> int:
+        return max(0, round(((ts or t0) - t0).total_seconds() * 1000))
+
+    spans = [
+        {"node": sp["node"], "iteration": sp["iteration"], "start_ms": rel(sp["start"]), "end_ms": rel(sp["end"]),
+         "duration_ms": rel(sp["end"]) - rel(sp["start"]), "message": sp["message"]}
+        for sp in _node_spans(events)
+    ]
+    calls = []
+    for tr in traces:
+        end = _parse_ts(tr.get("created_at"))
+        if end is None:
+            continue
+        end_ms = rel(end)
+        calls.append({"agent": tr["agent_name"], "operation": tr["operation"], "model": tr["model"], "status": tr["status"],
+                      "start_ms": max(0, end_ms - int(tr["latency_ms"] or 0)), "end_ms": end_ms,
+                      "latency_ms": tr["latency_ms"], "tokens": tr["total_tokens"]})
+    marker_types = {"route_decision", "loop_back", "guardrail_blocked", "budget_guard", "run_completed", "run_blocked", "run_failed"}
+    markers = [
+        {"type": ev["event_type"], "t_ms": rel(_parse_ts(ev.get("created_at_iso") or ev.get("created_at"))),
+         "node": ev["node"], "message": ev["message"], "route": (ev.get("payload") or {}).get("route")}
+        for ev in events if ev["event_type"] in marker_types
+    ]
+    last = max([s["end_ms"] for s in spans] + [c["end_ms"] for c in calls] + [m["t_ms"] for m in markers] + [0])
+    lanes = list(dict.fromkeys(s["node"] for s in spans))
+    return {"run_id": run_id, "duration_ms": last, "spans": spans, "llm_calls": calls, "markers": markers, "lanes": lanes}

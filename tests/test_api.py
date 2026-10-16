@@ -363,3 +363,26 @@ def test_audit_bundle_export(client, container):
     assert bundle["audit_chain"]["valid"] is True
     assert "content" not in bundle["sources"][0]
     assert client.get("/api/runs/run_missing/bundle").status_code == 404
+
+
+def test_architecture_stats_and_timeline_endpoints(client, container):
+    run_id = _run(client, container, max_iterations=2)
+    arch = client.get("/api/architecture").json()
+    assert [w["id"] for w in arch["workflow"]][:3] == ["ask", "screen", "plan"]
+    assert {a["id"] for a in arch["agents"]} >= {"guardian", "planner", "researcher", "drafter", "verifier", "synthesizer", "followup"}
+    assert "verifier -.-> researcher" in arch["graph"]["mermaid"]
+    assert "rsk_" not in json.dumps(arch)
+
+    stats = client.get("/api/architecture/stats").json()
+    assert stats["runs"]["total"] >= 1 and stats["runs"]["by_status"].get("completed")
+    assert {"planner", "verifier"} <= {a["agent"] for a in stats["agents"]}
+    assert all(0 <= a["success_rate"] <= 1 and a["p95_latency_ms"] >= 0 for a in stats["agents"])
+    assert {"input_guard", "verifier", "output_guard"} <= set(stats["nodes"])
+    assert sum(stats["claims"]["by_verdict"].values()) == stats["claims"]["total"]
+
+    tl = client.get(f"/api/runs/{run_id}/timeline").json()
+    assert tl["lanes"][0] == "input_guard" and tl["lanes"][-1] == "output_guard"
+    assert all(s["end_ms"] >= s["start_ms"] for s in tl["spans"])
+    assert tl["llm_calls"] and tl["duration_ms"] >= max(s["end_ms"] for s in tl["spans"])
+    assert "route_decision" in {m["type"] for m in tl["markers"]}
+    assert client.get("/api/runs/run_missing/timeline").status_code == 404
