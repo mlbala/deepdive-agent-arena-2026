@@ -1,0 +1,144 @@
+{
+  "description": "Tier-3 offline retrieval corpus for hermetic CI tests and reproducible evaluation. Authoritative entries are curated paraphrases/summaries of the cited publications (not verbatim copies). Entries on the reserved .example TLD are deliberately low-authority, partly incorrect sources used to test contradiction detection, authority weighting, and false-premise handling. This file is INPUT evidence only; no agent output is stored here.",
+  "version": "2026.10",
+  "documents": [
+    {
+      "url": "https://www.iea.org/reports/renewables-2023/executive-summary",
+      "title": "Renewables 2023 - Executive Summary (International Energy Agency)",
+      "published_date": "2024-01-11",
+      "content": "The world's capacity to generate renewable electricity is expanding faster than at any time in the last three decades. Global annual renewable capacity additions increased by almost 50% to nearly 510 gigawatts (GW) in 2023, the fastest growth rate in the past two decades. It was the 22nd year in a row that renewable capacity additions set a new record.\n\nSolar PV alone accounted for three-quarters of renewable capacity additions worldwide. The largest growth took place in China, which commissioned as much solar PV in 2023 as the entire world did in 2022, while China's wind power additions rose by 66% year-on-year. Increases in renewable capacity in Europe, the United States and Brazil also hit all-time highs.\n\nImproving economics are a central driver of the expansion. Spot prices for solar PV modules declined by almost 50% year-on-year in 2023 as manufacturing capacity expanded rapidly, improving the competitiveness of both utility-scale and distributed solar projects.\n\nUnder existing policies and market conditions, global renewable capacity is forecast to reach 7 300 GW over the 2023-2028 period, with solar PV and wind accounting for 95% of the expansion. At COP28 in Dubai, governments agreed to triple global renewable capacity to at least 11 000 GW by 2030. Under current policies the world is on course to increase capacity roughly two-and-a-half times by 2030, falling short of the tripling goal. Access to financing in emerging and developing economies is the main challenge to closing that gap."
+    },
+    {
+      "url": "https://www.reuters.com/business/energy/china-solar-boom-drives-record-global-installations-2024-01-11/",
+      "title": "China's solar boom drives record global installations as panel prices slump (Reuters)",
+      "published_date": "2024-01-11",
+      "content": "Global renewable power additions surged in 2023 to the highest level in more than two decades, led by a boom in solar installations in China, according to the International Energy Agency.\n\nAnalysts attribute much of the boom to collapsing equipment costs. A glut of polysilicon and module manufacturing capacity in China pushed solar panel prices to record lows during 2023, squeezing manufacturers' margins while making new projects cheaper for developers.\n\nChina installed more solar capacity in 2023 than any other country by a wide margin. Developers in Europe and the United States also accelerated installations, helped in the U.S. by tax credits in the Inflation Reduction Act.\n\nIndustry groups warn that grid connection queues, transmission bottlenecks and trade disputes over Chinese-made equipment could slow growth. Both the European Union and the United States have examined measures to support domestic solar manufacturing."
+    },
+    {
+      "url": "https://www.irena.org/Publications/2024/Mar/Renewable-capacity-statistics-2024",
+      "title": "Renewable Capacity Statistics 2024 (IRENA)",
+      "published_date": "2024-03-27",
+      "content": "The International Renewable Energy Agency reports that the renewable power sector added a record 473 GW of capacity in 2023. Renewables accounted for 86% of all new power capacity added worldwide during the year.\n\nSolar energy continued to lead the expansion, accounting for nearly three quarters (73%) of the renewable capacity added in 2023, followed by wind energy. Asia, led by China, accounted for the majority of the new capacity.\n\nCapacity statistics are reported on an alternating-current (AC) basis where possible, and figures can differ from those of other agencies because of differences in methodology, reporting dates and the treatment of off-grid and distributed systems."
+    },
+    {
+      "url": "https://solar-insider-blog.example/blog/why-solar-stalled-in-2023",
+      "title": "Why Solar Stalled in 2023 (Solar Insider Blog)",
+      "published_date": null,
+      "content": "2023 was a disappointing year for solar. In our view, rising module prices made panels more expensive than ever, and global solar installations fell compared with 2022 as developers cancelled projects.\n\nHigh interest rates also hurt rooftop solar demand in several markets. We expect a rebound only after 2026 once panel prices finally come down. Readers should be cautious about solar stocks."
+    },
+    {
+      "url": "https://arxiv.org/abs/1706.03762",
+      "title": "Attention Is All You Need (Vaswani et al., 2017)",
+      "published_date": "2017-06-12",
+      "content": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. The authors propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.\n\nThe model achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving over the existing best results, including ensembles, by over 2 BLEU. On the WMT 2014 English-to-French translation task, the model establishes a new single-model state-of-the-art BLEU score of 41.8 after training for 3.5 days on eight GPUs, a small fraction of the training costs of the best models from the literature. The Transformer also generalizes to English constituency parsing.\n\nArchitecture. The encoder and decoder are each composed of a stack of N = 6 identical layers. Each encoder layer has two sub-layers: multi-head self-attention and a position-wise fully connected feed-forward network, with residual connections followed by layer normalization. The decoder adds a third sub-layer that performs multi-head attention over the encoder output, and masks future positions so predictions depend only on earlier outputs.\n\nAttention is computed as scaled dot-product attention, softmax(QK^T / sqrt(d_k))V. The base model uses h = 8 parallel attention heads with a model dimension of 512. Because the model contains no recurrence, sinusoidal positional encodings are added to the input embeddings to inject information about token order. A self-attention layer connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires O(n) sequential operations."
+    },
+    {
+      "url": "https://arxiv.org/abs/1810.04805",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding (Devlin et al., 2018)",
+      "published_date": "2018-10-11",
+      "content": "BERT, which stands for Bidirectional Encoder Representations from Transformers, is a language representation model designed to pre-train deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers. The pre-trained BERT model can be fine-tuned with just one additional output layer to create state-of-the-art models for a wide range of tasks, such as question answering and language inference, without substantial task-specific architecture modifications.\n\nBERT is pre-trained with two objectives: a masked language model, which randomly masks some input tokens and predicts them from context, and next sentence prediction.\n\nBERT obtained new state-of-the-art results on eleven natural language processing tasks, including pushing the GLUE score to 80.5% (a 7.7 point absolute improvement), MultiNLI accuracy to 86.7% (a 4.6% absolute improvement), SQuAD v1.1 question answering Test F1 to 93.2 (a 1.5 point absolute improvement) and SQuAD v2.0 Test F1 to 83.1 (a 5.1 point absolute improvement)."
+    },
+    {
+      "url": "https://ml-notes.example/blog/transformers-explained",
+      "title": "Transformers Explained Simply (ML Notes blog)",
+      "published_date": null,
+      "content": "Self-attention compares every token with every other token, so its compute and memory cost grow quadratically with sequence length. This is why long-context models rely on techniques such as sparse attention patterns or memory-efficient attention kernels.\n\nDecoder-only variants of the Transformer, such as the GPT family, are trained to predict the next token, while encoder-only variants such as BERT are trained with masked language modelling. Encoder-decoder variants are still common in translation and summarization systems."
+    },
+    {
+      "url": "https://www.sciencedirect.com/science/article/pii/S0160412022001258",
+      "title": "Discovery and quantification of plastic particle pollution in human blood (Environment International, 2022)",
+      "published_date": "2022-03-24",
+      "content": "Plastic particles are ubiquitous pollutants in the living environment and food chain, but no study had previously quantified internal exposure to plastic particles in human blood. This study developed a sampling and analytical method using double-shot pyrolysis-gas chromatography/mass spectrometry to quantify plastic particles of 700 nm and larger in human whole blood.\n\nBlood from 22 healthy adult volunteers was analysed for five polymers: poly(methyl methacrylate), polypropylene, polystyrene, polyethylene and polyethylene terephthalate (PET). Plastic particles were quantifiable in 17 of the 22 donors (77%). The mean of the sum quantifiable concentration of plastic particles in blood was 1.6 micrograms per millilitre.\n\nPET was detected in half of the donors, polymers of styrene in 36% and polyethylene in 23%. The authors conclude that plastic particles are bioavailable for uptake into the human bloodstream. Whether such particles are transported to organs and whether they cause harm were not assessed and require further research."
+    },
+    {
+      "url": "https://www.who.int/news/item/22-08-2019-who-calls-for-more-research-into-microplastics",
+      "title": "WHO calls for more research into microplastics and a crackdown on plastic pollution (World Health Organization)",
+      "published_date": "2019-08-22",
+      "content": "A 2019 World Health Organization analysis of microplastics in drinking-water concluded that, based on the limited information available, microplastics in drinking-water do not appear to pose a health risk at current levels. The report stressed that the evidence base is limited and called for further research on the occurrence of microplastics and their potential health impacts, together with standardised methods for measuring microplastic particles.\n\nA subsequent WHO review published in 2022 on dietary and inhalation exposure to nano- and microplastic particles concluded that there is insufficient evidence to determine the risk to human health. It identified a need for more data on exposure and toxicity, especially for the smallest particles (nanoplastics)."
+    },
+    {
+      "url": "https://www.nejm.org/doi/full/10.1056/NEJMoa2309822",
+      "title": "Microplastics and Nanoplastics in Atheromas and Cardiovascular Events (New England Journal of Medicine, 2024)",
+      "published_date": "2024-03-07",
+      "content": "In a prospective, multicenter, observational study, patients undergoing carotid endarterectomy for asymptomatic carotid artery disease had their excised plaque specimens analysed for microplastics and nanoplastics.\n\nOf the 257 patients who completed follow-up, with a mean follow-up of 33.7 months, polyethylene was detected in the carotid artery plaque of 150 patients (58.4%) and polyvinyl chloride was detected in 31 patients (12.1%).\n\nPatients in whom microplastics and nanoplastics were detected in plaque had a higher risk of a composite of myocardial infarction, stroke, or death from any cause than those in whom these substances were not detected (hazard ratio, 4.53). Because the study was observational, it does not establish that microplastics cause cardiovascular events, and the findings require confirmation."
+    },
+    {
+      "url": "https://wellness-truths.example/blog/microplastics-proven-to-cause-cancer",
+      "title": "Microplastics Are Poisoning Your Blood (Wellness Truths blog)",
+      "published_date": null,
+      "content": "Scientists have now proven that microplastics in blood cause cancer and heart attacks. Every person with plastic in their blood will eventually develop disease. The good news: our detox tea flushes microplastics out of the bloodstream within a week."
+    },
+    {
+      "url": "https://www.rbi.org.in/Scripts/FS_Overview.aspx?fn=2752",
+      "title": "Monetary Policy: Framework and Instruments (Reserve Bank of India)",
+      "published_date": "2024-04-01",
+      "content": "The primary objective of the Reserve Bank of India's monetary policy is to maintain price stability while keeping in mind the objective of growth. The amended RBI Act, 1934, which came into force in 2016, provides the statutory basis for a flexible inflation targeting framework. The Government of India, in consultation with the Reserve Bank, sets the inflation target once every five years. The target is 4 per cent Consumer Price Index (CPI) inflation, with an upper tolerance limit of 6 per cent and a lower tolerance limit of 2 per cent.\n\nThe Monetary Policy Committee (MPC) determines the policy repo rate required to achieve the inflation target. The MPC has six members: the Governor as chairperson, the Deputy Governor in charge of monetary policy, one officer of the Reserve Bank nominated by the Central Board, and three external members appointed by the Central Government. Decisions are taken by majority vote, and in the event of a tie the Governor has a second or casting vote. The MPC is required to meet at least four times a year.\n\nThe repo rate is the fixed interest rate at which the Reserve Bank provides overnight liquidity to banks against the collateral of government and other approved securities under the liquidity adjustment facility (LAF). The Standing Deposit Facility, introduced in April 2022, sets the floor of the LAF corridor, and the Marginal Standing Facility rate sets the ceiling.\n\nChanges in the policy repo rate are transmitted through the financial system to money market rates, bank lending and deposit rates, and ultimately to aggregate demand and inflation. Since October 2019, banks have been required to link new floating-rate personal and retail loans and loans to micro and small enterprises to an external benchmark such as the policy repo rate, which has strengthened monetary transmission."
+    },
+    {
+      "url": "https://www.livemint.com/economy/rbi-cuts-repo-rate-first-time-in-nearly-five-years-2025-02-07",
+      "title": "RBI cuts repo rate for the first time in nearly five years (Mint)",
+      "published_date": "2025-02-07",
+      "content": "The Reserve Bank of India cut its policy repo rate by 25 basis points to 6.25% on February 7, 2025, its first reduction since May 2020, in the first policy decision under Governor Sanjay Malhotra.\n\nThe repo rate had been held at 6.50% since February 2023, after a cumulative 250 basis points of increases that began with an off-cycle hike in May 2022, when consumer inflation was running above the upper tolerance limit of the target band.\n\nEconomists said easing inflation and slowing growth gave the Monetary Policy Committee room to cut, and that transmission to borrowers would be fastest for loans linked to the external benchmark."
+    },
+    {
+      "url": "https://www.imf.org/en/Publications/fandd/issues/Series/Back-to-Basics/Monetary-Policy",
+      "title": "Monetary Policy: Stabilizing Prices and Output (IMF Finance & Development)",
+      "published_date": null,
+      "content": "Central banks typically conduct monetary policy by adjusting a short-term policy interest rate. Raising the policy rate increases borrowing costs for households and firms, which tends to reduce spending and investment and ease inflationary pressure; lowering it has the opposite effect.\n\nMonetary policy affects the economy with long and variable lags, so central banks must act on forecasts of inflation rather than on current readings alone. Many central banks have adopted inflation targeting, publicly announcing a numerical inflation objective to anchor expectations and improve accountability."
+    },
+    {
+      "url": "https://forum.money-talk.example/thread/rbi-inflation-target",
+      "title": "RBI inflation target? (Money Talk forum thread)",
+      "published_date": null,
+      "content": "Pretty sure the RBI targets 2% inflation, just like the US Federal Reserve. Also the repo rate is the rate at which banks lend their surplus money to the RBI, so a higher repo rate means banks earn more."
+    },
+    {
+      "url": "https://www.federalreserve.gov/faqs/economy_14400.htm",
+      "title": "Why does the Federal Reserve aim for inflation of 2 percent over the longer run? (Federal Reserve)",
+      "published_date": null,
+      "content": "The Federal Open Market Committee judges that inflation of 2 percent over the longer run, as measured by the annual change in the price index for personal consumption expenditures, is most consistent with the Federal Reserve's mandate for maximum employment and price stability. Communicating this inflation goal clearly helps keep longer-term inflation expectations firmly anchored."
+    },
+    {
+      "url": "https://www.ecb.europa.eu/mopo/strategy/html/index.en.html",
+      "title": "Monetary policy strategy (European Central Bank)",
+      "published_date": "2021-07-08",
+      "content": "Following its 2021 strategy review, the European Central Bank considers that price stability is best maintained by aiming for 2% inflation over the medium term. The target is symmetric, meaning negative and positive deviations of inflation from the target are considered equally undesirable."
+    },
+    {
+      "url": "https://earthobservatory.nasa.gov/images/5123/great-wall-of-china",
+      "title": "Great Wall of China (NASA Earth Observatory)",
+      "published_date": "2005-05-20",
+      "content": "The Great Wall of China, frequently billed as the only human-made object visible from space, generally is not visible to the unaided eye from low Earth orbit, and it certainly is not visible from the Moon. The wall is mostly only a few meters wide and is made of materials whose colors are similar to the surrounding terrain, so it offers little visual contrast.\n\nAstronaut Leroy Chiao photographed a section of the wall from the International Space Station in 2004 using a camera with a 180-millimeter lens, but he was not certain he had seen it with his own eyes.\n\nFrom the Moon, at a distance of about 384,000 kilometers, no individual human-made structures are visible to the naked eye. Apollo astronauts reported that from that distance they could see only clouds, oceans, patches of ice and the outlines of continents."
+    },
+    {
+      "url": "https://www.scientificamerican.com/article/is-chinas-great-wall-visible-from-space/",
+      "title": "Is China's Great Wall Visible from Space? (Scientific American)",
+      "published_date": "2008-02-21",
+      "content": "The claim that the Great Wall can be seen from the Moon predates human spaceflight; versions of it appeared in print decades before anyone had left Earth, including a 1932 Ripley's Believe It or Not! cartoon.\n\nChina's first astronaut, Yang Liwei, said after his 2003 flight aboard Shenzhou 5 that he had not been able to see the Great Wall. Visibility from orbit depends on an object's width and its contrast with the surroundings rather than its length, which is why highways, airports and city lights at night are easier to spot from low orbit than the wall."
+    },
+    {
+      "url": "https://travel-wonders.example/blog/great-wall-visible-from-moon",
+      "title": "The Only Structure You Can See From the Moon (Travel Wonders blog)",
+      "published_date": null,
+      "content": "The Great Wall of China is the only man-made structure visible from the Moon with the naked eye. Apollo astronauts confirmed that they could clearly see the wall from lunar orbit, which shows just how enormous it is."
+    },
+    {
+      "url": "https://biotech-rumors.example/forum/zentrix-zx9-phase-3",
+      "title": "Zentrix Biologics ZX-9 rumor thread (Biotech Rumors forum)",
+      "published_date": null,
+      "content": "Anyone heard about Zentrix Biologics? Someone on a message board said their ZX-9 gene therapy crushed its Phase 3 endpoint and that 2023 revenue was around 400 million dollars, but I cannot find a press release, a trial registry entry or any filings. Could be a pump-and-dump rumor."
+    },
+    {
+      "url": "https://www.fda.gov/vaccines-blood-biologics/cellular-gene-therapy-products/approved-cellular-and-gene-therapy-products",
+      "title": "Approved Cellular and Gene Therapy Products (U.S. Food and Drug Administration)",
+      "published_date": null,
+      "content": "The FDA approved Luxturna (voretigene neparvovec-rzyl) in December 2017, the first directly administered gene therapy approved in the United States that targets a disease caused by mutations in a specific gene. In May 2019 the FDA approved Zolgensma (onasemnogene abeparvovec-xioi) for the treatment of children less than two years of age with spinal muscular atrophy.\n\nSponsors seeking approval of a gene therapy must submit a Biologics License Application supported by substantial evidence of safety and effectiveness, typically from adequate and well-controlled clinical trials."
+    },
+    {
+      "url": "https://www.sec.gov/files/reada10k.pdf",
+      "title": "How to Read a 10-K (U.S. Securities and Exchange Commission)",
+      "published_date": null,
+      "content": "U.S. public companies are required to file annual reports on Form 10-K, which include audited financial statements and a discussion of the company's business and risks. Investors can search the SEC's EDGAR database to find a company's filings.\n\nInvestors should be cautious about claims regarding a company's revenues or product results that cannot be traced to official filings, press releases, or other verifiable sources."
+    }
+  ]
+}
