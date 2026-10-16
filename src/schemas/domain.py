@@ -343,6 +343,7 @@ class ReportMetrics(_Model):
     coverage_score: float = 0.0
     citation_precision: float = 0.0
     quote_verification_rate: float = 0.0
+    report_citation_coverage: float = 0.0
     iterations: int = 0
     loop_backs: int = 0
     total_claims_evaluated: int = 0
