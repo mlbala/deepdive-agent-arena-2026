@@ -213,6 +213,7 @@ class UploadedDocument(Base):
     char_count: Mapped[int] = mapped_column(Integer)
     page_count: Mapped[int] = mapped_column(Integer, default=1)
     content_hash: Mapped[str] = mapped_column(String(64))
+    guardrails_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -304,6 +305,7 @@ class AuditStore:
         """Additive, idempotent column migrations for databases created by older versions."""
         additions = {
             "audit_events": {"created_at_iso": "VARCHAR(40)", "prev_hash": "VARCHAR(64)", "hash": "VARCHAR(64)"},
+            "documents": {"guardrails_json": "TEXT DEFAULT '[]'"},
         }
         inspector = inspect(self.engine)
         with self.engine.begin() as conn:
@@ -666,6 +668,7 @@ class AuditStore:
         content: str,
         page_count: int,
         content_hash: str,
+        guardrails: Sequence[dict[str, Any]] = (),
     ) -> None:
         with self.session() as s:
             s.add(
@@ -677,6 +680,7 @@ class AuditStore:
                     char_count=len(content),
                     page_count=page_count,
                     content_hash=content_hash,
+                    guardrails_json=json.dumps(list(guardrails)),
                 )
             )
 

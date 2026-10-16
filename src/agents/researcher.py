@@ -228,8 +228,18 @@ class ResearcherAgent(BaseAgent):
                 self._emit_finding(collector, finding.model_copy(update={"location": f"{source.source_id} {source.domain}"}))
 
         if iteration <= 1:
-            for raw in self._load_uploads(document_ids):
+            for raw, prior in self._load_uploads(document_ids):
+                before = len(new_sources)
                 register(raw, None, is_upload=True)
+                if len(new_sources) > before and prior:
+                    src = new_sources[-1]
+                    src.guardrail_flags = sorted({*src.guardrail_flags, *(f.kind for f in prior)})
+                    for finding in prior:  # decisions taken when the file was uploaded
+                        self._emit_finding(
+                            collector,
+                            finding.model_copy(update={"location": f"{src.source_id} upload:{raw.title.removeprefix('Uploaded: ')}",
+                                                       "detail": f"{finding.detail} [at upload]"}),
+                        )
         for (sq_id, _q), outcome in zip(jobs, outcomes, strict=True):
             for raw in outcome.results:
                 register(raw, sq_id)
@@ -303,16 +313,23 @@ class ResearcherAgent(BaseAgent):
                 break
         return selected
 
-    def _load_uploads(self, document_ids: list[str]) -> list[RawSearchResult]:
+    def _load_uploads(self, document_ids: list[str]) -> list[tuple[RawSearchResult, list[GuardrailFinding]]]:
         if not document_ids or self.document_loader is None:
             return []
-        return [
-            RawSearchResult(
+        out: list[tuple[RawSearchResult, list[GuardrailFinding]]] = []
+        for doc in self.document_loader(document_ids):
+            prior: list[GuardrailFinding] = []
+            for item in doc.get("guardrails") or []:
+                try:
+                    prior.append(GuardrailFinding.model_validate(item))
+                except ValueError:
+                    continue
+            raw = RawSearchResult(
                 url=f"upload://{doc['id']}/{doc['filename']}",
                 title=f"Uploaded: {doc['filename']}",
                 content=doc["content"],
                 retrieval_tier=RetrievalTier.UPLOAD,
                 query="user upload",
             )
-            for doc in self.document_loader(document_ids)
-        ]
+            out.append((raw, prior))
+        return out

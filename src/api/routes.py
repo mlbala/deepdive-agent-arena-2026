@@ -170,10 +170,9 @@ async def start_research(body: ResearchRequest, request: Request) -> ResearchAcc
     missing = [d for d in body.document_ids if d not in known]
     if missing:
         raise HTTPException(status_code=404, detail=f"Unknown document id(s): {', '.join(missing)}")
-    # The input_guard graph node screens and may block the run; PII is redacted *before* persistence here.
-    query = svc.orchestrator.input_guard.redact_only(body.query.strip())
+    # The run row stores only the redacted question; the input_guard node screens (and may block) it.
     run_id = svc.runs.start(
-        query,
+        body.query.strip(),
         max_iterations=body.max_iterations or svc.settings.max_iterations,
         document_ids=body.document_ids,
     )
@@ -383,7 +382,7 @@ async def upload_documents(request: Request, files: list[UploadFile] = File(...)
             doc.content, location=f"upload:{doc.filename}", redact_pii=svc.settings.redact_pii_in_documents
         )
         digest = content_hash(content)
-        guardrails = [{"kind": f.kind, "action": f.action.value, "detail": f.detail} for f in findings]
+        guardrails = [f.model_dump(mode="json") for f in findings]
         existing = svc.store.find_document_by_hash(digest)
         if existing is not None:
             out.append({**existing, "duplicate": True, "guardrails": guardrails})
@@ -395,6 +394,7 @@ async def upload_documents(request: Request, files: list[UploadFile] = File(...)
             content=content,
             page_count=doc.page_count,
             content_hash=digest,
+            guardrails=guardrails,
         )
         out.append(
             {

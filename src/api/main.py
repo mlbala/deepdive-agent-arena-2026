@@ -126,7 +126,14 @@ class RunManager:
 
     def _start_locked(self, query: str, *, max_iterations: int, document_ids: list[str]) -> str:
         run_id = new_run_id()
-        self.store.create_run(run_id, query, max_iterations=max_iterations, document_ids=document_ids)
+        # Only the redacted question is persisted; the input_guard node re-screens the in-memory
+        # original so its PII/secret redactions are recorded as auditable findings.
+        persisted = (
+            self.orchestrator.input_guard.redact_only(query)
+            if self.orchestrator.settings.guardrails_enabled
+            else query
+        )
+        self.store.create_run(run_id, persisted, max_iterations=max_iterations, document_ids=document_ids)
         self.bus.open(run_id)
         self._futures[run_id] = self._executor.submit(self._run, run_id, query, max_iterations, document_ids)
         return run_id
