@@ -310,6 +310,18 @@ async def run_timeline(run_id: str, request: Request) -> dict[str, Any]:
     return svc.store.run_timeline(run_id)
 
 
+@router.get("/api/runs/{run_id}/chat")
+async def run_chat(run_id: str, request: Request) -> list[dict[str, Any]]:
+    """The agents' group chat for a run: every hand-off, in order (read from the hash-chained audit trail)."""
+    svc = services(request)
+    _run_or_404(svc, run_id)
+    return [
+        {**e["payload"], "event_id": e["event_id"], "node": e["node"]}
+        for e in svc.store.list_audit_events(run_id)
+        if e["event_type"] == "agent_message"
+    ]
+
+
 @router.get("/api/runs/{run_id}/audit/verify")
 async def run_audit_verify(run_id: str, request: Request) -> dict[str, Any]:
     svc = services(request)

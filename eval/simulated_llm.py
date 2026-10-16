@@ -13,6 +13,9 @@ evaluation harness. It is NOT a language model and its scores are NOT Mesh-model
 `hallucinate_first_draft=True` makes the drafter append one fabricated, cited sentence on
 first drafts (no verifier feedback present), which exercises the verifier's rejection path
 and the loop-back edge end-to-end.
+
+`reject_first_plan=True` makes the approver raise a blocking issue on the first plan, which
+exercises the Planner <-> Approver revision loop.
 """
 
 from __future__ import annotations
@@ -87,8 +90,9 @@ class HeuristicMeshSimulator:
 
     model_label = "offline-heuristic-simulator"
 
-    def __init__(self, *, hallucinate_first_draft: bool = False) -> None:
+    def __init__(self, *, hallucinate_first_draft: bool = False, reject_first_plan: bool = False) -> None:
         self.hallucinate_first_draft = hallucinate_first_draft
+        self.reject_first_plan = reject_first_plan
         self.calls_by_role: dict[str, int] = {}
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.embeddings = SimpleNamespace(create=self._embed)
@@ -158,6 +162,61 @@ class HeuristicMeshSimulator:
                 },
             ],
         }
+
+    def _planner_revise(self, p: dict[str, Any]) -> dict[str, Any]:
+        core = _core(p.get("research_question", "the topic"))
+        current = p.get("current_plan", {}).get("sub_questions", [])
+        subs = [{"question": sq["question"], "search_queries": sq["search_queries"][:3], "priority": min(i + 1, 5)}
+                for i, sq in enumerate(current)]
+        notes = []
+        for issue in p.get("approver_review", {}).get("issues", []):
+            if issue.get("severity") in ("high", "medium") and len(subs) < 5:
+                subs.append({
+                    "question": f"What official statistics or primary data quantify {core}?",
+                    "rationale": "Requested by the approver.",
+                    "search_queries": [f"{core} official statistics"],
+                    "priority": min(len(subs) + 1, 5),
+                })
+                notes.append(f"Added a primary-data sub-question for: {issue.get('problem', 'review issue')}")
+        return {"research_strategy": p.get("current_plan", {}).get("research_strategy", ""),
+                "sub_questions": subs, "revision_notes": notes}
+
+    _PREMISE_WORDS = frozenset("disputed contradicted myth premise whether verify true evidence".split())
+
+    def _approver(self, p: dict[str, Any]) -> dict[str, Any]:
+        question = p.get("research_question", "")
+        subs = p.get("plan", {}).get("sub_questions", [])
+        plan_text = " ".join(f"{sq['question']} {' '.join(sq.get('search_queries', []))}" for sq in subs)
+        q_tokens = set(_tokens(question))
+        coverage = 0.6 + 0.4 * (len(q_tokens & set(_tokens(plan_text))) / len(q_tokens) if q_tokens else 1.0)
+        pairs = [(a, b) for i, a in enumerate(subs) for b in subs[i + 1:]]
+        def focus(text: str) -> set[str]:
+            return set(_tokens(text)) - q_tokens
+
+        overlap = max(
+            (len(focus(a["question"]) & focus(b["question"])) / len(focus(a["question"]) | focus(b["question"]))
+             for a, b in pairs if focus(a["question"]) and focus(b["question"])),
+            default=0.0,
+        )
+        queries = [q for sq in subs for q in sq.get("search_queries", [])]
+        # lenient on length (the simulator's own planner echoes the question); the deterministic check still flags it
+        searchable = sum(2 <= len(q.split()) <= 18 for q in queries) / len(queries) if queries else 0.0
+        tests_premise = any(set(_tokens(sq["question"])) & self._PREMISE_WORDS for sq in subs)
+        premise = 1.0 if tests_premise or not question.lower().startswith("why") else 0.5
+        issues: list[dict[str, Any]] = []
+        specificity = 0.85
+        if self.reject_first_plan and p.get("round") == 1:
+            specificity = 0.55
+            issues.append({"target": "plan", "severity": "high",
+                           "problem": "no sub-question asks for primary, quantified data",
+                           "fix": "Add a sub-question asking which official statistics quantify the topic."})
+        if premise < 1.0:
+            issues.append({"target": "plan", "severity": "high", "problem": "the question's premise is never tested",
+                           "fix": "Add a sub-question that checks whether the premise is true."})
+        rubric = {"coverage": round(coverage, 2), "distinctness": round(1.0 - overlap, 2),
+                  "searchability": round(searchable, 2), "premise_check": premise, "specificity": specificity}
+        verdict = "needs revision" if issues else "ready for retrieval"
+        return {"rubric": rubric, "issues": issues, "summary": f"Plan reviewed against the rubric: {verdict}."}
 
     def _researcher(self, p: dict[str, Any]) -> dict[str, Any]:
         queries = []

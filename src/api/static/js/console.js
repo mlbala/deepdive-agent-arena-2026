@@ -1,13 +1,15 @@
 // Live console: run composer, LangGraph tracker, metrics, report / claims / contradictions / sources /
 // governance / audit / telemetry / follow-up tabs, source inspector.
 'use strict';
-import { $, $$, ApiError, api, cite, emit, esc, fmt, on, pct, setApiKey, store, toast, withKey } from './core.js';
+import { $, $$, ApiError, api, cite, emit, esc, fmt, on, pct, setApiKey, store, toast, ts, withKey } from './core.js';
+import { chatTranscript } from './chat.js';
 import { renderInsights } from './charts.js';
 import { openLens } from './lens.js';
 
 const NODES = [
   { id: 'input_guard', label: 'Input shield', sub: 'injection · harm · PII' },
   { id: 'planner', label: 'Planner', sub: 'MECE sub-questions' },
+  { id: 'approver', label: 'Approver', sub: 'plan quality gate' },
   { id: 'researcher', label: 'Researcher', sub: '3-tier retrieval' },
   { id: 'drafter', label: 'Drafter', sub: 'cited drafts' },
   { id: 'verifier', label: 'Verifier', sub: 'entailment · radar' },
@@ -16,7 +18,7 @@ const NODES = [
 ];
 const TABS = [
   ['report', 'Report'], ['insights', 'Insights'], ['claims', 'Claim Matrix'], ['contradictions', 'Contradiction Radar'], ['sources', 'Sources'],
-  ['governance', 'Governance'], ['audit', 'Audit Trail'], ['telemetry', 'Telemetry'], ['followup', 'Follow-up'],
+  ['chat', 'Agent Chat'], ['governance', 'Governance'], ['audit', 'Audit Trail'], ['telemetry', 'Telemetry'], ['followup', 'Follow-up'],
 ];
 const PRESETS = [
   'How much solar PV capacity was added globally in 2023, and what drove that growth?',
@@ -183,7 +185,7 @@ function onAudit(ev, live) {
       ? `<span class="text-amber-300">budget guard: ${pct(p.fraction_used)} of the run budget used → loop-back suppressed</span>`
       : `iteration ${esc(p.iteration)}: coverage <b class="text-slate-200">${pct(p.coverage_score)}</b> (≥${pct(p.coverage_threshold)}) · grounding <b class="text-slate-200">${pct(p.grounding_rate)}</b> (≥${pct(p.grounding_threshold)}) → <span class="${p.route === 'researcher' ? 'text-violet-300' : 'text-emerald-300'}">${esc(p.route)}</span>`;
   }
-  if (live) { renderTracker(); renderMetrics(null); appendAuditRow(ev); setCount('audit', store.events.length); }
+  if (live) { renderTracker(); renderMetrics(null); appendAuditRow(ev); setCount('audit', store.events.length); if (t === 'agent_message') renderAgentChat(); }
 }
 
 async function loadAll() {
@@ -200,7 +202,17 @@ async function loadAll() {
 }
 
 // ------------------------------------------------------------------ tab renderers
-function renderAll() { renderReport(); renderInsightsTab(); renderClaims(); renderContradictions(); renderSources(); renderGovernance(); renderAudit(); renderTelemetry(); renderFollowup(); }
+function renderAll() { renderReport(); renderInsightsTab(); renderClaims(); renderContradictions(); renderSources(); renderAgentChat(); renderGovernance(); renderAudit(); renderTelemetry(); renderFollowup(); }
+
+function renderAgentChat() {
+  const el = $('[data-panel="chat"]'); if (!el) return;
+  const t0 = store.events.length ? ts(store.events[0]) : 0;
+  const msgs = store.events.filter((e) => e.event_type === 'agent_message').map((e) => ({ ...e.payload, t: ts(e) - t0 }));
+  setCount('chat', msgs.length || '');
+  el.innerHTML = msgs.length
+    ? `<p class="mb-3 max-w-3xl text-[13px] leading-relaxed text-slate-400">Every hand-off between agents, in order. Each message is what one agent actually passed to the next, and it sits in the hash-chained audit trail.</p><div class="max-w-3xl">${chatTranscript(msgs)}</div>`
+    : empty('Agents post their hand-offs here: the plan and the Approver\'s review, then evidence, drafts, verdicts and every quality-gate decision.');
+}
 
 function renderInsightsTab() {
   const el = $('[data-panel="insights"]');

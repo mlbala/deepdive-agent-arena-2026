@@ -386,3 +386,11 @@ def test_architecture_stats_and_timeline_endpoints(client, container):
     assert tl["llm_calls"] and tl["duration_ms"] >= max(s["end_ms"] for s in tl["spans"])
     assert "route_decision" in {m["type"] for m in tl["markers"]}
     assert client.get("/api/runs/run_missing/timeline").status_code == 404
+
+    chat = client.get(f"/api/runs/{run_id}/chat").json()
+    senders = [m["sender"] for m in chat]
+    assert senders[:2] == ["planner", "approver"] and senders[-2:] == ["synthesizer", "output_guard"]
+    assert {"researcher", "drafter", "verifier", "quality_gate"} <= set(senders)
+    assert all(m["run_id"] == run_id and m["text"] for m in chat)
+    assert client.get("/api/runs/run_missing/chat").status_code == 404
+    assert "approver" in {a["id"] for a in arch["agents"]} and "approve" in [w["id"] for w in arch["workflow"]]

@@ -23,6 +23,7 @@ async function buildItems(scenarios) {
     { group: 'Navigate', icon: '⌁', label: 'How it works: architecture explorer', sub: '2', run: () => emit('navigate', { view: 'explorer' }) },
     { group: 'Navigate', icon: '▤', label: 'Console', sub: '3', run: () => emit('navigate', { view: 'console' }) },
     { group: 'Navigate', icon: '◔', label: 'Insights for the current run', sub: 'charts', run: () => emit('navigate', { view: 'console', params: { tab: 'insights' } }) },
+    { group: 'Navigate', icon: '💬', label: 'Agent group chat for the current run', sub: 'every hand-off between agents', run: () => emit('navigate', { view: 'console', params: { tab: 'chat' } }) },
     { group: 'Architecture', icon: '☰', label: 'Workflow: how a question becomes a verified report', sub: '11 steps', run: () => emit('navigate', { view: 'explorer', params: { xview: 'workflow' } }) },
     { group: 'Architecture', icon: '◇', label: 'Agents & their real system prompts', sub: 'prompts · tools · latency', run: () => emit('navigate', { view: 'explorer', params: { xview: 'agents' } }) },
     { group: 'Architecture', icon: '⌗', label: 'LangGraph state channels & data contracts', sub: 'reducers · schemas', run: () => emit('navigate', { view: 'explorer', params: { xview: 'state' } }) },

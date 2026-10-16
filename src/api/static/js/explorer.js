@@ -23,6 +23,7 @@ export const ICONS = {
   upload: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M12 18v-6M9.5 14.5L12 12l2.5 2.5"/>',
   chain: '<rect x="2.5" y="9" width="9" height="6" rx="3"/><rect x="12.5" y="9" width="9" height="6" rx="3"/><path d="M9 12h6"/>',
   stop: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
+  approve: '<path d="M12 2.8l2.1 1.5 2.6-.1.8 2.5 2.1 1.5-.8 2.5.8 2.5-2.1 1.5-.8 2.5-2.6-.1L12 21.2l-2.1-1.5-2.6.1-.8-2.5-2.1-1.5.8-2.5-.8-2.5 2.1-1.5.8-2.5 2.6.1z"/><path d="M8.7 12.1l2.2 2.2 4.4-4.5"/>',
   mesh: '<circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h4l6-5.2M11 12l6 5.2"/>',
 };
 
@@ -30,16 +31,17 @@ export const ICONS = {
 const NODES = [
   { id: 'user', n: 1, label: 'You', sub: 'your question', kind: 'io', icon: 'user', x: 30, y: 190, w: 150 },
   { id: 'input_guard', n: 2, label: 'Input shield', sub: 'inject·harm·PII', kind: 'guard', icon: 'shield', x: 205, y: 190, w: 150, agent: 'guardian' },
-  { id: 'planner', n: 3, label: 'Planner', sub: 'MECE split', kind: 'agent', icon: 'plan', x: 380, y: 190, w: 150, agent: 'planner' },
-  { id: 'researcher', n: 4, label: 'Researcher', sub: 'retrieve·score·index', kind: 'agent', icon: 'search', x: 560, y: 190, w: 170, agent: 'researcher' },
-  { id: 'index', n: 5, label: 'Evidence index', sub: 'BM25+Chroma spans', kind: 'store', icon: 'db', x: 760, y: 190, w: 160, agent: 'embedder' },
-  { id: 'drafter', n: 6, label: 'Drafter', sub: 'cited drafts', kind: 'agent', icon: 'pen', x: 950, y: 190, w: 150, agent: 'drafter' },
-  { id: 'verifier', n: 7, label: 'Verifier', sub: 'entail·guards·radar', kind: 'agent', icon: 'verify', x: 1050, y: 330, w: 170, agent: 'verifier' },
-  { id: 'router', n: 8, label: 'Router', sub: 'route_verification', kind: 'decision', icon: 'route', cx: 960, cy: 505 },
-  { id: 'synthesizer', n: 9, label: 'Synthesizer', sub: 'verified-only', kind: 'agent', icon: 'spark', x: 690, y: 474, w: 160, agent: 'synthesizer' },
-  { id: 'output_guard', n: 10, label: 'Output shield', sub: 'redact · govern', kind: 'guard', icon: 'shieldOut', x: 500, y: 474, w: 160 },
-  { id: 'report', n: 11, label: 'Final report', sub: 'cited·audited·PDF', kind: 'io', icon: 'doc', x: 310, y: 474, w: 160 },
-  { id: 'followup', n: 12, label: 'Follow-up chat', sub: 'grounded Q&A', kind: 'agent', icon: 'chat', x: 110, y: 474, w: 170, agent: 'followup' },
+  { id: 'planner', n: 3, label: 'Planner', sub: 'MECE split · revise', kind: 'agent', icon: 'plan', x: 380, y: 190, w: 150, agent: 'planner' },
+  { id: 'approver', n: 4, label: 'Approver', sub: 'plan quality gate', kind: 'agent', icon: 'approve', x: 400, y: 282, w: 150, agent: 'approver' },
+  { id: 'researcher', n: 5, label: 'Researcher', sub: 'retrieve·score·index', kind: 'agent', icon: 'search', x: 560, y: 190, w: 170, agent: 'researcher' },
+  { id: 'index', n: 6, label: 'Evidence index', sub: 'BM25+Chroma spans', kind: 'store', icon: 'db', x: 760, y: 190, w: 160, agent: 'embedder' },
+  { id: 'drafter', n: 7, label: 'Drafter', sub: 'cited drafts', kind: 'agent', icon: 'pen', x: 950, y: 190, w: 150, agent: 'drafter' },
+  { id: 'verifier', n: 8, label: 'Verifier', sub: 'entail·guards·radar', kind: 'agent', icon: 'verify', x: 1050, y: 330, w: 170, agent: 'verifier' },
+  { id: 'router', n: 9, label: 'Quality gate', sub: 'route_verification', kind: 'decision', icon: 'route', cx: 960, cy: 505 },
+  { id: 'synthesizer', n: 10, label: 'Synthesizer', sub: 'verified-only', kind: 'agent', icon: 'spark', x: 690, y: 474, w: 160, agent: 'synthesizer' },
+  { id: 'output_guard', n: 11, label: 'Output shield', sub: 'redact · govern', kind: 'guard', icon: 'shieldOut', x: 500, y: 474, w: 160 },
+  { id: 'report', n: 12, label: 'Final report', sub: 'cited·audited·PDF', kind: 'io', icon: 'doc', x: 310, y: 474, w: 160 },
+  { id: 'followup', n: 13, label: 'Follow-up chat', sub: 'grounded Q&A', kind: 'agent', icon: 'chat', x: 110, y: 474, w: 170, agent: 'followup' },
   { id: 'web', label: 'Web retrieval', sub: 'Tavily→DDG→corpus', kind: 'tool', icon: 'globe', x: 470, y: 40, w: 170 },
   { id: 'docs', label: 'Your documents', sub: 'PDF·TXT·MD', kind: 'tool', icon: 'upload', x: 660, y: 40, w: 170 },
   { id: 'audit', label: 'Audit trail', sub: 'SHA-256 hash chain', kind: 'store', icon: 'chain', x: 530, y: 612, w: 180 },
@@ -51,7 +53,9 @@ const EDGES = [
   { id: 'user_guard', d: 'M180,221 L205,221', label: 'question', lx: 192, ly: 175 },
   { id: 'guard_planner', d: 'M355,221 L380,221', label: 'screened', lx: 367, ly: 175 },
   { id: 'guard_block', d: 'M280,252 L280,296', label: 'blocked', lx: 318, ly: 272, kind: 'danger', anchor: 'start' },
-  { id: 'planner_res', d: 'M530,221 L560,221', label: 'sub-questions', lx: 545, ly: 175 },
+  { id: 'planner_appr', d: 'M512,252 L512,282', label: 'plan', lx: 520, ly: 268, anchor: 'start' },
+  { id: 'appr_planner', d: 'M418,282 L418,252', label: 'revise', lx: 410, ly: 268, kind: 'loop', anchor: 'end' },
+  { id: 'appr_res', d: 'M550,313 C590,313 600,290 605,252', label: 'approved', lx: 562, ly: 338, anchor: 'start' },
   { id: 'web_res', d: 'M555,102 C555,150 612,146 618,190', label: 'searches', lx: 520, ly: 150, kind: 'tool' },
   { id: 'docs_res', d: 'M745,102 C745,150 680,146 674,190', label: 'uploads', lx: 778, ly: 150, kind: 'tool' },
   { id: 'res_index', d: 'M730,221 L760,221', label: 'sources', lx: 745, ly: 175 },
@@ -67,11 +71,11 @@ const EDGES = [
 ];
 const GATEWAY = { x: 200, y: 360, w: 830, h: 30 };
 const CONNECTORS = { // agent node -> point on the Mesh gateway bar
-  input_guard: 'M250,252 L250,360', planner: 'M455,252 L455,360', researcher: 'M600,252 L600,360',
+  input_guard: 'M250,252 L250,360', planner: 'M392,252 L392,360', approver: 'M475,344 L475,360', researcher: 'M700,252 L700,360',
   index: 'M840,252 L840,360', drafter: 'M1015,252 L1015,360', verifier: 'M1050,368 L1030,374',
   synthesizer: 'M770,474 L770,390', followup: 'M195,474 C195,430 215,410 215,390',
 };
-const AGENT_NODE = { guardian: 'input_guard', planner: 'planner', researcher: 'researcher', embedder: 'index', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup' };
+const AGENT_NODE = { guardian: 'input_guard', planner: 'planner', approver: 'approver', researcher: 'researcher', embedder: 'index', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup' };
 
 const KIND = {
   agent: { color: 'rgb(var(--accent))', label: 'LLM agent · via Mesh' },
@@ -86,12 +90,13 @@ const KIND = {
 const INFO = {
   user: { what: 'Your research question enters the LangGraph. Nothing touches it before the input shield has screened it.', io: 'question → input shield', checks: ['1,000-character limit', 'PII redacted before the run row is written'], code: 'src/api/routes.py' },
   input_guard: { what: 'A deterministic shield followed by the Guardian classifier (a Mesh LLM call, as defence in depth). It blocks prompt injection, jailbreaks and credential probing, plus requests for operational harm: weapons, explosives, malware, self-harm, CSAM and violent extremism. It also strips hidden characters and redacts PII and secrets.', io: 'question → screened question | END (blocked)', checks: ['Pattern library aimed at operational intent, so research on the same topics still passes', 'Guardian can only block at ≥ 0.80 confidence and fails open', 'Blocked runs never reach any research agent'], code: 'src/guardrails/shields.py · src/agents/guardian.py' },
-  planner: { what: 'Splits the question into 3–5 non-overlapping sub-questions, each with targeted search queries. If the question rests on a doubtful premise, one sub-question checks that premise.', io: 'question → PlannerOutput (SubQuestion × 3–5)', checks: ['Near-duplicate sub-questions removed (Jaccard > 0.8)', 'Pydantic contract with self-healing JSON repair'], code: 'src/agents/planner.py' },
+  planner: { what: 'Splits the question into 3–5 non-overlapping sub-questions, each with targeted search queries. If the question rests on a doubtful premise, one sub-question checks that premise. When the Approver sends the plan back, the Planner revises it against every listed issue and notes each change.', io: 'question (+ PlanReview) → PlannerOutput (SubQuestion × 3–5)', checks: ['Near-duplicate sub-questions removed (Jaccard > 0.8)', 'Pydantic contract with self-healing JSON repair'], code: 'src/agents/planner.py' },
+  approver: { what: 'The quality gate between planning and retrieval. It scores the plan on coverage, distinctness, searchability, premise testing and specificity (a Mesh LLM call), and runs deterministic checks for dropped entities, overlapping sub-questions and malformed queries. Below the bar the plan goes back to the Planner; the two iterate in the plan-review room.', io: 'SubQuestion[] → PlanReview → planner | researcher', checks: ['Approve at score ≥ the plan threshold with no blocking issue (model-raised high issues need rubric corroboration)', 'Bounded revisions; open issues stay on record', 'Fails open on the model, never on the checks'], code: 'src/agents/approver.py · route_plan_review()' },
   researcher: { what: 'Runs queries in parallel through the 3-tier retriever and deduplicates by URL and content hash. Each page is scored for authority, sanitised by the content shield and chunked into exact spans. Evidence is then ranked by authority for each sub-question. On a loop-back it first asks Mesh for refinement queries aimed at the gaps.', io: 'sub-questions (+ gaps) → SourceDocument[], EvidenceChunk[]', checks: ['Content shield: injected sentences neutralised, hidden text stripped', 'URL shield: no private IPs, metadata hosts or unsafe redirects', 'Tier 1/2/3 authority scoring; poisoned sources score lower'], code: 'src/agents/researcher.py · src/tools/web_search.py' },
   index: { what: 'Hybrid retrieval: BM25 plus ChromaDB with Mesh embeddings, merged by reciprocal-rank fusion. Every chunk keeps its exact [char_start, char_end) offsets in the source, so any quote can be traced back.', io: 'chunks → ranked evidence spans', checks: ['Drops to sparse-only retrieval if embeddings fail', 'Spans rehydrate from SQLite for follow-ups'], code: 'src/storage/vector_store.py' },
   drafter: { what: 'Writes 80–220 words per sub-question using only the evidence provided. Every factual sentence must end with [SRC-XXX] citations.', io: 'sub-question + evidence → DraftSection', checks: ['Citations outside the evidence pool are flagged', 'Evidence is treated as untrusted data, never as instructions'], code: 'src/agents/drafter.py' },
   verifier: { what: 'Splits drafts into atomic claims and checks each one against the spans of its cited sources only. Deterministic guards follow: the quote must be found in the source, the source must be one the claim cites, figures must appear in the source, and the source must clear the admissibility floor. A contradiction radar compares sources against each other.', io: 'drafts → AtomicClaim[], VerificationResult[], ContradictionItem[]', checks: ['Quote matching: exact → normalised → elliptical → fuzzy, with numbers locked', 'Claims citing sources below the authority floor are downgraded', 'Both sides of a contradiction must be quoted verbatim'], code: 'src/agents/verifier.py' },
-  router: { what: 'The conditional edge. While coverage is below 70% or grounding below 75%, iterations remain and the budget soft limit hasn\'t been reached, it loops back to the Researcher for the failing sub-questions only. Otherwise it publishes.', io: 'metrics → researcher | synthesizer', checks: ['Only targeted sub-questions are re-researched', 'Budget guard suppresses loop-backs at 75% of the run budget'], code: 'src/agents/orchestrator.py · route_verification()' },
+  router: { what: 'The evidence room\'s quality gate (a conditional edge). It posts its decision to the agents\' group chat. While coverage is below 70% or grounding below 75%, iterations remain and the budget soft limit hasn\'t been reached, it loops back to the Researcher for the failing sub-questions only. Otherwise it publishes.', io: 'metrics → researcher | synthesizer', checks: ['Only targeted sub-questions are re-researched', 'Budget guard suppresses loop-backs at 75% of the run budget'], code: 'src/agents/orchestrator.py · route_verification()' },
   synthesizer: { what: 'Sees only SUPPORTED claims. A claim whose source is outranked by a contradicting source is withheld, and a citation guard drops any sentence that cites sources outside the verified set.', io: 'verified claims → FinalReport', checks: ['Authority-weighted contradiction resolution', 'Removed claims are kept in the audit record'], code: 'src/agents/synthesizer.py' },
   output_guard: { what: 'Redacts PII and secrets from everything that gets published. It also attaches the governance summary (findings, budget use, models, audit-chain head) and the disclosure.', io: 'FinalReport → published FinalReport', checks: ['Secrets always redacted', 'PII redacted by policy'], code: 'src/guardrails/shields.py · OutputGuard' },
   report: { what: 'The published executive report: claim matrix, contradiction radar, sources, governance section and a PDF with the full audit appendix.', io: 'report → UI · PDF · API', checks: ['Every sentence has verified citations or states that evidence is missing'], code: 'src/tools/pdf_exporter.py' },
@@ -120,11 +125,13 @@ function stepOf(item) {
     case 'guardrail_finding': s.tone = 'guard'; if (item.node === 'researcher') s.edge = p.guard === 'url_shield' ? 'web_res' : undefined; s.color = 'rgb(var(--orange))'; break;
     case 'guardrail_blocked': s.node = 'input_guard'; s.edge = 'guard_block'; s.color = 'rgb(var(--red))'; s.tone = 'danger'; break;
     case 'run_blocked': s.node = 'blocked'; s.tone = 'danger'; break;
-    case 'plan_created': s.edge = 'planner_res'; break;
+    case 'plan_created': s.edge = 'planner_appr'; if ((p.round || 1) > 1) s.text = `Planner revised the plan (version ${p.round}) — ${(p.revision_notes || [])[0] || item.message}`; break;
+    case 'plan_reviewed': s.node = 'approver'; s.edge = p.passed || p.forced ? 'appr_res' : 'appr_planner'; s.color = p.passed ? 'rgb(var(--green))' : 'rgb(var(--orange))'; s.tone = p.passed ? 'ok' : 'loop'; s.dur = 1000; break;
+    case 'agent_message': s.node = p.sender === 'quality_gate' ? 'router' : (NODE[p.sender] ? p.sender : node); s.text = `💬 ${p.text}`; s.tone = 'chat'; s.dur = 520; break;
     case 'search_executed': s.edge = 'web_res'; s.color = 'rgb(var(--cyan))'; break;
     case 'source_indexed': s.edge = p.retrieval_tier === 'uploaded_document' ? 'docs_res' : 'res_index'; if (p.retrieval_tier === 'uploaded_document') s.extraEdge = 'res_index'; break;
     case 'node_started':
-      s.edge = { planner: 'guard_planner', researcher: item.iteration > 1 ? null : 'planner_res', drafter: 'index_drafter', verifier: 'drafter_ver', synthesizer: 'router_synth', output_guard: 'synth_output' }[node] || undefined;
+      s.edge = { planner: item.iteration > 1 ? 'appr_planner' : 'guard_planner', approver: 'planner_appr', researcher: item.iteration > 1 ? null : 'appr_res', drafter: 'index_drafter', verifier: 'drafter_ver', synthesizer: 'router_synth', output_guard: 'synth_output' }[node] || undefined;
       s.text = `${NODE[node]?.label || node} started${item.iteration > 1 ? ` (iteration ${item.iteration})` : ''} — ${item.message}`; break;
     case 'draft_created': s.edge = 'drafter_ver'; break;
     case 'claim_verified': s.color = p.verdict === 'SUPPORTED' ? 'rgb(var(--green))' : p.verdict === 'CONTRADICTED' ? 'rgb(var(--red))' : 'rgb(var(--orange))'; s.edge = 'ver_router'; s.tone = p.verdict === 'SUPPORTED' ? 'ok' : 'warn'; break;
@@ -156,7 +163,7 @@ function reduce(k) {
     nodes: Object.fromEntries(NODES.map((n) => [n.id, { status: 'idle', visits: 0, findings: 0 }])),
     edges: Object.fromEntries(EDGES.map((e) => [e.id, { visited: false, label: null }])),
     c: { subq: 0, searches: 0, tiers: {}, sources: 0, uploads: 0, spans: 0, drafts: 0, invalid: 0, claims: 0, supported: 0, contradicted: 0, unsupported: 0, downgraded: 0, ctr: 0, removed: 0, loops: 0, kept: null, redactions: 0, findings: 0, injections: 0, urlsBlocked: 0, calls: 0, tokens: 0, byAgent: {}, events: 0, followups: 0 },
-    routes: [], subQuestions: [], status: 'idle', blocked: null, query: '', inputStatus: null, llmScreen: null, budget: null, lastMetrics: null,
+    routes: [], reviews: [], subQuestions: [], status: 'idle', blocked: null, query: '', inputStatus: null, llmScreen: null, budget: null, lastMetrics: null,
   };
   const c = S.c;
   for (let j = 0; j <= k && j < X.steps.length; j++) {
@@ -185,8 +192,13 @@ function reduce(k) {
         if (p.action === 'redact') { const m = /^(\d+)/.exec(p.detail || ''); c.redactions += m ? Number(m[1]) : 1; }
         break;
       case 'guardrail_blocked': S.blocked = it.message; S.nodes.input_guard.status = 'blocked'; S.nodes.blocked.status = 'blocked'; S.edges.guard_block.label = 'blocked'; break;
-      case 'run_blocked': S.status = 'blocked'; for (const id of ['planner', 'researcher', 'index', 'drafter', 'verifier', 'router', 'synthesizer', 'output_guard', 'report']) S.nodes[id].status = 'skipped'; break;
-      case 'plan_created': S.subQuestions = p.sub_questions || []; c.subq = S.subQuestions.length; S.edges.planner_res.label = `${c.subq} sub-questions`; break;
+      case 'run_blocked': S.status = 'blocked'; for (const id of ['planner', 'approver', 'researcher', 'index', 'drafter', 'verifier', 'router', 'synthesizer', 'output_guard', 'report']) S.nodes[id].status = 'skipped'; break;
+      case 'plan_created': S.subQuestions = p.sub_questions || []; c.subq = S.subQuestions.length; S.edges.planner_appr.label = `plan v${p.round || 1} · ${c.subq} sub-q`; break;
+      case 'plan_reviewed':
+        S.reviews.push(p);
+        if (p.passed || p.forced) S.edges.appr_res.label = `${p.forced ? 'open issues' : 'approved'} · ${Number(p.score).toFixed(2)}`;
+        else { S.edges.appr_planner.visited = true; S.edges.appr_planner.label = `revise · ${Number(p.score).toFixed(2)}`; }
+        break;
       case 'search_executed': c.searches++; if (p.tier) c.tiers[p.tier] = (c.tiers[p.tier] || 0) + 1; S.edges.web_res.label = `${c.searches} searches`; S.nodes.web.status = 'done'; break;
       case 'source_indexed':
         c.sources++; S.nodes.index.status = 'done';
@@ -308,7 +320,7 @@ function buildSvg() {
   for (const e of EDGES) {
     const g = el('g', { class: `edge-label edge-label-${e.kind || 'main'}`, id: `label-${e.id}` }, svg);
     el('rect', { rx: 7, height: 18, y: e.ly - 12 }, g);
-    el('text', { x: e.lx, y: e.ly + 1, 'text-anchor': e.anchor === 'start' ? 'start' : 'middle' }, g).textContent = e.label;
+    el('text', { x: e.lx, y: e.ly + 1, 'text-anchor': e.anchor || 'middle' }, g).textContent = e.label;
   }
   el('g', { id: 'packets' }, svg);
   layoutLabels();
@@ -327,7 +339,7 @@ function layoutLabels() {
     const text = g.querySelector('text'); const rect = g.querySelector('rect');
     const w = Math.max(28, text.getComputedTextLength ? text.getComputedTextLength() + 14 : text.textContent.length * 6.4 + 14);
     rect.setAttribute('width', w);
-    rect.setAttribute('x', e.anchor === 'start' ? e.lx - 7 : e.lx - w / 2);
+    rect.setAttribute('x', e.anchor === 'start' ? e.lx - 7 : e.anchor === 'end' ? e.lx - w + 7 : e.lx - w / 2);
   }
 }
 
@@ -343,12 +355,13 @@ function render() {
     const badge = $(`#badge-${n.id}`);
     if (badge) { badge.style.display = ns.findings ? '' : 'none'; badge.querySelector('text').textContent = ns.findings; }
     const mult = $(`#mult-${n.id}`);
-    if (mult) mult.textContent = ns.visits > 1 && ['researcher', 'drafter', 'verifier'].includes(n.id) ? `×${ns.visits}` : '';
+    if (mult) mult.textContent = ns.visits > 1 && ['planner', 'approver', 'researcher', 'drafter', 'verifier'].includes(n.id) ? `×${ns.visits}` : '';
   }
   const stats = {
     user: S.query ? `“${S.query.slice(0, 18)}…”` : '',
     input_guard: S.inputStatus ? `${S.inputStatus.replace('_with_redactions', ' + redact')} · LLM ${S.llmScreen || '-'}` : '',
-    planner: c.subq ? `${c.subq} sub-questions` : '',
+    planner: c.subq ? `${c.subq} sub-questions${S.reviews.length > 1 ? ` · v${S.reviews.length}` : ''}` : '',
+    approver: S.reviews.length ? `score ${Number(S.reviews[S.reviews.length - 1].score).toFixed(2)} · ${S.reviews[S.reviews.length - 1].passed ? 'approved' : S.reviews[S.reviews.length - 1].forced ? 'open issues' : 'revise'}` : '',
     researcher: c.searches ? `${c.searches} searches · ${c.sources} src` : '',
     index: c.sources ? `${c.sources} sources indexed` : '',
     drafter: c.drafts ? `${c.drafts} drafts${c.invalid ? ` · ${c.invalid} bad cites` : ''}` : '',
@@ -472,7 +485,8 @@ function liveStatsHtml(id, S) {
   switch (id) {
     case 'user': row('question', esc(S.query.slice(0, 90) || '—')); break;
     case 'input_guard': row('screen', esc(S.inputStatus || '—')); row('Guardian', esc(S.llmScreen || '—')); row('findings', S.nodes.input_guard.findings); if (S.blocked) row('blocked', `<span class="text-rose-300">${esc(S.blocked.slice(0, 120))}</span>`); break;
-    case 'planner': S.subQuestions.forEach((q) => row(q.id, esc(q.question.slice(0, 70)))); break;
+    case 'planner': row('plan versions', Math.max(1, S.reviews.length)); S.subQuestions.forEach((q) => row(q.id, esc(q.question.slice(0, 70)))); break;
+    case 'approver': S.reviews.forEach((r) => row(`version ${r.round}`, `${Number(r.score).toFixed(2)} / ${Number(r.threshold).toFixed(2)} → <b>${r.passed ? 'approved' : r.forced ? 'open issues' : 'revise'}</b> · ${(r.issues || []).length} issue(s)`)); break;
     case 'researcher': row('passes', S.nodes.researcher.visits); row('searches', c.searches); row('tiers', esc(Object.entries(c.tiers).map(([k, v]) => `${k} ${v}`).join(' · ') || '—')); row('sources', c.sources); row('injections neutralised', c.injections); row('URLs refused', c.urlsBlocked); break;
     case 'index': row('sources indexed', c.sources); row('uploads', c.uploads); break;
     case 'web': row('searches', c.searches); row('URLs refused', c.urlsBlocked); break;

@@ -5,9 +5,9 @@ import { $, $$, api, esc, fmt, pct, store, toast } from './core.js';
 
 const A = { arch: null, stats: null, view: 'graph', getRun: () => store.runId, timelineFor: null };
 const KIND_COLOR = { guardrail: 'rgb(var(--orange))', agent: 'rgb(var(--accent))', decision: 'rgb(var(--purple))', tool: 'rgb(var(--cyan))', store: 'rgb(var(--teal))' };
-const NODE_KIND = { input_guard: 'guardrail', output_guard: 'guardrail', router: 'decision', planner: 'agent', researcher: 'agent', drafter: 'agent', verifier: 'agent', synthesizer: 'agent', followup: 'agent' };
-const LANE_LABEL = { input_guard: 'Input shield', planner: 'Planner', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', output_guard: 'Output shield', followup: 'Follow-up', embeddings: 'Mesh embeddings' };
-const AGENT_LANE = { guardian: 'input_guard', planner: 'planner', researcher: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup', embedder: 'embeddings' };
+const NODE_KIND = { input_guard: 'guardrail', output_guard: 'guardrail', router: 'decision', planner: 'agent', approver: 'agent', researcher: 'agent', drafter: 'agent', verifier: 'agent', synthesizer: 'agent', followup: 'agent' };
+const LANE_LABEL = { input_guard: 'Input shield', planner: 'Planner', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', output_guard: 'Output shield', followup: 'Follow-up', embeddings: 'Mesh embeddings' };
+const AGENT_LANE = { guardian: 'input_guard', planner: 'planner', approver: 'approver', researcher: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup', embedder: 'embeddings' };
 
 async function load(force = false) {
   if (!A.arch || force) A.arch = await api('/api/architecture');
@@ -43,7 +43,12 @@ function renderWorkflow(el) {
           <p class="wf-what">${esc(step.what)}</p>
           <div class="wf-io"><span class="wf-io-k">In</span>${step.inputs.map((x) => `<code>${esc(x)}</code>`).join('')}<span class="wf-arrow">→</span><span class="wf-io-k">Out</span>${step.outputs.map((x) => `<code>${esc(x)}</code>`).join('')}</div>
           <div class="mt-3 flex flex-wrap gap-1.5">${step.checks.map((c) => `<span class="wf-check">✓ ${esc(c)}</span>`).join('')}</div>
-          ${step.branches.length ? `<div class="mt-3 space-y-1.5">${step.branches.map((b) => `<div class="wf-branch ${b.to === 'end_blocked' ? 'danger' : b.to === 'retrieve' ? 'loop' : ''}"><b>${b.to === 'end_blocked' ? '⛔ End' : b.to === 'retrieve' ? '↩ Back to Retrieve' : `→ ${esc(b.to[0].toUpperCase() + b.to.slice(1))}`}</b> ${esc(b.when)}</div>`).join('')}</div>` : ''}
+          ${step.branches.length ? `<div class="mt-3 space-y-1.5">${step.branches.map((b) => {
+            const target = workflow.findIndex((w) => w.id === b.to);
+            const back = target >= 0 && target <= i;
+            const name = target >= 0 ? workflow[target].title : b.to[0].toUpperCase() + b.to.slice(1);
+            return `<div class="wf-branch ${b.to === 'end_blocked' ? 'danger' : back ? 'loop' : ''}"><b>${b.to === 'end_blocked' ? '⛔ End' : back ? `↩ Back to ${esc(name)}` : `→ ${esc(name)}`}</b> ${esc(b.when)}</div>`;
+          }).join('')}</div>` : ''}
           ${nstat || astat ? `<div class="wf-stats">${nstat ? `<span>step time <b>${ms(nstat.avg_ms)}</b> avg · <b>${ms(nstat.p95_ms)}</b> p95 over ${nstat.runs} run(s)</span>` : ''}${astat ? `<span>model <b>${esc(agent.model)}</b> · ${astat.calls} calls · ${fmt(astat.avg_tokens)} tok/call · ${pct(astat.success_rate)} success</span>` : agent?.model ? `<span>model <b>${esc(agent.model)}</b></span>` : ''}</div>` : ''}
         </div></section>`;
     }).join('')}</div></div>`;

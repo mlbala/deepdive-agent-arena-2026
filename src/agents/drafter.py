@@ -75,7 +75,9 @@ class DrafterAgent(BaseAgent):
             payload["previous_attempt_feedback"] = {
                 "reason": gap.reason,
                 "claims_rejected_by_verifier": gap.unsupported_claims[:6],
-                "instruction": "Do not repeat these claims unless the evidence now explicitly supports them.",
+                "verifier_notes": gap.feedback[:6],
+                "instruction": "Do not repeat these claims unless the evidence now explicitly supports them. "
+                "The verifier_notes say why each one failed: fix the cause (wrong source, altered figure, no verbatim support).",
             }
 
         output = self._llm(

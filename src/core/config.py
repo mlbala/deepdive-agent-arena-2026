@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     mesh_default_model: str = "openai/gpt-4o-mini"
     mesh_embedding_model: str = "openai/text-embedding-3-small"
     planner_model: str | None = None
+    approver_model: str | None = None
     researcher_model: str | None = None
     drafter_model: str | None = None
     verifier_model: str | None = None
@@ -73,6 +74,10 @@ class Settings(BaseSettings):
     coverage_threshold: float = Field(default=0.70, ge=0, le=1)
     grounding_threshold: float = Field(default=0.75, ge=0, le=1)
     min_source_authority: float = Field(default=0.45, ge=0, le=1)  # evidence admissibility floor
+
+    # --- Plan review gate (Planner <-> Approver) --------------------------------
+    plan_approval_threshold: float = Field(default=0.80, ge=0, le=1)
+    max_plan_revisions: int = Field(default=2, ge=0, le=4)
 
     # --- Storage & concurrency ----------------------------------------------
     database_url: str = "sqlite:///./data/deepdive.db"
@@ -166,7 +171,7 @@ class Settings(BaseSettings):
         explicit = self._csv(self.allowed_models)
         if explicit:
             return frozenset(explicit)
-        agents = ("planner", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
+        agents = ("planner", "approver", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
         return frozenset({self.mesh_default_model, self.mesh_embedding_model, *(self.model_for(a) for a in agents)})
 
     @property
@@ -202,6 +207,8 @@ class Settings(BaseSettings):
             "coverage_threshold": self.coverage_threshold,
             "grounding_threshold": self.grounding_threshold,
             "min_source_authority": self.min_source_authority,
+            "plan_approval_threshold": self.plan_approval_threshold,
+            "max_plan_revisions": self.max_plan_revisions,
             "policy_version": self.policy_version,
             "auth_required": bool(self.api_key_set),
         }
@@ -225,6 +232,12 @@ class Settings(BaseSettings):
                 "grounding_threshold": self.grounding_threshold,
                 "min_source_authority": self.min_source_authority,
                 "max_iterations": self.max_iterations,
+            },
+            "quality_gates": {
+                "plan_approval_threshold": self.plan_approval_threshold,
+                "max_plan_revisions": self.max_plan_revisions,
+                "coverage_threshold": self.coverage_threshold,
+                "grounding_threshold": self.grounding_threshold,
             },
             "budgets": {
                 "max_llm_calls_per_run": self.max_llm_calls_per_run,

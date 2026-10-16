@@ -15,7 +15,16 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from src.agents import drafter, followup, guardian, planner, researcher, synthesizer, verifier
+from src.agents import (
+    approver,
+    drafter,
+    followup,
+    guardian,
+    planner,
+    researcher,
+    synthesizer,
+    verifier,
+)
 from src.core.config import Settings
 from src.schemas import domain
 from src.schemas.state import ResearchState
@@ -26,16 +35,22 @@ if TYPE_CHECKING:
 # Which state channels each graph node returns (asserted against real node updates in tests).
 NODE_WRITES: dict[str, list[str]] = {
     "input_guard": ["query", "blocked", "block_reason", "llm_screen", "audit_log"],
-    "planner": ["sub_questions", "research_strategy", "target_sub_question_ids", "iteration_count", "audit_log"],
-    "researcher": ["iteration_count", "sources", "evidence", "evidence_by_sq", "refinement_queries", "audit_log"],
-    "drafter": ["drafts", "audit_log"],
+    "planner": [
+        "sub_questions", "research_strategy", "target_sub_question_ids", "iteration_count", "plan_round",
+        "group_chat", "audit_log",
+    ],
+    "approver": ["plan_review", "plan_reviews", "group_chat", "audit_log"],
+    "researcher": [
+        "iteration_count", "sources", "evidence", "evidence_by_sq", "refinement_queries", "group_chat", "audit_log",
+    ],
+    "drafter": ["drafts", "group_chat", "audit_log"],
     "verifier": [
         "budget_exhausted", "claims", "verifications", "contradictions", "verification_gaps",
         "target_sub_question_ids", "coverage_score", "grounding_rate", "route", "iteration_metrics",
-        "claim_history", "verification_history", "audit_log",
+        "claim_history", "verification_history", "group_chat", "audit_log",
     ],
-    "synthesizer": ["final_report", "audit_log"],
-    "output_guard": ["final_report", "audit_log"],
+    "synthesizer": ["final_report", "group_chat", "audit_log"],
+    "output_guard": ["final_report", "group_chat", "audit_log"],
 }
 
 STATE_NOTES: dict[str, str] = {
@@ -45,6 +60,10 @@ STATE_NOTES: dict[str, str] = {
     "llm_screen": "Guardian verdict: passed / flagged / blocked / skipped / error.",
     "budget_exhausted": "Set when the run reaches its soft Mesh budget: no more loop-backs.",
     "sub_questions": "MECE sub-questions with their search queries.", "research_strategy": "Planner's decomposition logic.",
+    "plan_round": "Which version of the plan this is (1 = first draft).",
+    "plan_review": "The Approver's latest verdict: rubric, issues, score, passed / forced.",
+    "plan_reviews": "Every plan review, in order (append-only).",
+    "group_chat": "Agent-to-agent hand-offs: what each agent passed to the next (append-only).",
     "sources": "Scored, shielded source documents keyed by SRC id.", "evidence": "Exact character spans keyed by chunk id.",
     "evidence_by_sq": "Evidence selected for each sub-question.", "refinement_queries": "Every targeted refinement query (history).",
     "drafts": "Latest cited draft per sub-question.", "claims": "Latest atomic claims per sub-question.",
@@ -68,20 +87,27 @@ WORKFLOW: list[dict[str, Any]] = [
      "checks": ["injection & jailbreak patterns", "harmful-intent patterns", "PII + secret redaction", "Guardian ≥ 0.80 to block"],
      "branches": [{"to": "end_blocked", "when": "a guardrail blocks: the run ends before any research agent runs"}]},
     {"id": "plan", "title": "Plan", "node": "planner", "actor": "Planner agent",
-     "what": "Splits the question into 3–5 non-overlapping sub-questions, including one that tests a doubtful premise, each with targeted search queries.",
-     "inputs": ["question"], "outputs": ["SubQuestion[]"], "checks": ["near-duplicate removal", "schema self-repair"], "branches": []},
-    {"id": "retrieve", "title": "Retrieve", "node": "researcher", "actor": "Researcher agent + tools",
-     "what": "Runs searches in parallel (Tavily → DuckDuckGo → offline corpus). Each page is checked by the URL shield, cleaned by the content shield, scored for authority and indexed as exact spans. Evidence is then selected for each sub-question.",
+     "what": "Splits the question into 3–5 non-overlapping sub-questions, including one that tests a doubtful premise, each with targeted search queries. When the Approver sends the plan back, the Planner revises it against the listed issues and notes each change.",
+     "inputs": ["question", "PlanReview (on revision)"], "outputs": ["SubQuestion[]", "AgentMessage"],
+     "checks": ["near-duplicate removal", "schema self-repair"], "branches": []},
+    {"id": "approve", "title": "Approve", "node": "approver", "actor": "Approver agent + deterministic plan checks",
+     "what": "Scores the plan on coverage, distinctness, searchability, premise checking and specificity, and runs deterministic checks for dropped entities, overlapping sub-questions and malformed queries. Planner and Approver go back and forth in the plan-review room until the plan clears the bar.",
+     "inputs": ["SubQuestion[]"], "outputs": ["PlanReview", "AgentMessage"],
+     "checks": ["rubric score ≥ {plan_threshold}", "no blocking issue (a model-raised high issue must be corroborated by its rubric)", "at most {plan_revisions} revision(s)", "fails open on the model, never on the checks"],
+     "branches": [{"to": "plan", "when": "score < {plan_threshold} or a blocking issue, with revisions left"},
+                  {"to": "retrieve", "when": "approved, or the revision budget is spent (open issues stay on record)"}]},
+    {"id": "retrieve", "title": "Retrieve", "node": "researcher", "actor": "Researcher agent + tools · evidence room",
+     "what": "Opens the evidence room, where Researcher, Drafter and Verifier pass work to each other until the quality gate passes. Runs searches in parallel (Tavily → DuckDuckGo → offline corpus). Each page is checked by the URL shield, cleaned by the content shield, scored for authority and indexed as exact spans. Evidence is then selected for each sub-question.",
      "inputs": ["SubQuestion[]", "VerificationGap[] (on loop-back)"], "outputs": ["SourceDocument[]", "EvidenceChunk[]"],
      "checks": ["URL shield (SSRF)", "content shield (indirect injection)", "authority tiers", "dedupe by URL + content hash"], "branches": []},
     {"id": "draft", "title": "Draft", "node": "drafter", "actor": "Drafter agent",
-     "what": "Writes each sub-question's answer from evidence only. Every factual sentence carries [SRC-XXX] citations.",
-     "inputs": ["EvidenceChunk[]"], "outputs": ["DraftSection[]"], "checks": ["citations limited to the evidence pool"], "branches": []},
+     "what": "Writes each sub-question's answer from evidence only. Every factual sentence carries [SRC-XXX] citations. On a re-draft it receives the Verifier's reason for every rejected claim.",
+     "inputs": ["EvidenceChunk[]", "VerificationGap[] with per-claim feedback (on loop-back)"], "outputs": ["DraftSection[]"], "checks": ["citations limited to the evidence pool"], "branches": []},
     {"id": "verify", "title": "Verify", "node": "verifier", "actor": "Verifier agent + deterministic guards",
      "what": "Splits drafts into atomic claims and checks each against its cited spans. The quote has to exist verbatim, the figures have to match, and the source has to clear the authority floor. The contradiction radar compares sources.",
      "inputs": ["DraftSection[]"], "outputs": ["AtomicClaim[]", "VerificationResult[]", "ContradictionItem[]", "IterationMetrics"],
      "checks": ["verbatim quote localisation", "numeric grounding", "citation scope", "admissibility floor", "contradiction quote validation"], "branches": []},
-    {"id": "decide", "title": "Decide", "node": "router", "actor": "route_verification (conditional edge)",
+    {"id": "decide", "title": "Decide", "node": "router", "actor": "Quality gate · route_verification (conditional edge)",
      "what": "Compares grounding and coverage against their thresholds. Weak sub-questions are sent back to retrieval with refinement queries; otherwise the run moves on to synthesis.",
      "inputs": ["IterationMetrics"], "outputs": ["route"], "checks": ["iteration budget", "budget soft limit"],
      "branches": [{"to": "retrieve", "when": "coverage < {coverage} or grounding < {grounding}, with iterations and budget left"},
@@ -113,6 +139,16 @@ def _agents(settings: Settings) -> list[dict[str, Any]]:
          "role": "Splits the question into non-overlapping sub-questions with targeted search queries.",
          "prompts": [{"name": "system", "text": planner.SYSTEM_PROMPT}], "llm_contract": "PlannerOutput", "produces": ["SubQuestion"],
          "tools": [], "guardrails": ["3–5 sub-questions enforced by schema", "near-duplicate removal"], "code": "src/agents/planner.py"},
+        {"id": "approver", "name": "Approver", "kind": "agent", "node": "approver", "llm": True, "model": m("approver"),
+         "role": "Quality gate for the plan: scores it on a five-part rubric and sends it back with concrete fixes until it clears the bar.",
+         "prompts": [{"name": "system", "text": approver.SYSTEM_PROMPT}, {"name": "planner revision", "text": planner.REVISION_PROMPT}],
+         "llm_contract": "PlanReviewOutput", "produces": ["PlanReview", "AgentMessage"],
+         "tools": ["plan_checks (dropped entities, overlapping sub-questions, query shape)"],
+         "guardrails": [f"approve at score ≥ {settings.plan_approval_threshold:.2f} with no blocking issue",
+                        "model-raised high issues block only when its rubric agrees (a criterion < 0.70)",
+                        f"at most {settings.max_plan_revisions} revision(s), then proceed with issues on record",
+                        "fails open on the model, never on the deterministic checks"],
+         "code": "src/agents/approver.py"},
         {"id": "researcher", "name": "Researcher", "kind": "agent", "node": "researcher", "llm": True, "model": m("researcher"),
          "role": "Retrieves, shields, scores and indexes evidence; plans targeted refinement queries on loop-back.",
          "prompts": [{"name": "refinement", "text": researcher.REFINEMENT_PROMPT}], "llm_contract": "RefinementOutput",
@@ -133,8 +169,8 @@ def _agents(settings: Settings) -> list[dict[str, Any]]:
          "tools": ["locate_quote (exact → normalised → elliptical → fuzzy, numbers locked)", "ungrounded_numbers", "HybridVectorStore"],
          "guardrails": ["hallucinated-quote downgrade", "miscitation downgrade", "confidence floor", "numeric grounding",
                         f"admissibility floor {settings.min_source_authority:.2f}"], "code": "src/agents/verifier.py"},
-        {"id": "router", "name": "route_verification", "kind": "decision", "node": "router", "llm": False, "model": None,
-         "role": "Conditional edge that loops back to the Researcher or moves on to synthesis.",
+        {"id": "router", "name": "Quality gate", "kind": "decision", "node": "router", "llm": False, "model": None,
+         "role": "route_verification: the evidence room's exit. Loops back to the Researcher or moves on to synthesis, and posts the decision to the group chat.",
          "prompts": [], "llm_contract": None, "produces": ["route"], "tools": [],
          "guardrails": [f"loop if coverage < {settings.coverage_threshold:.0%} or grounding < {settings.grounding_threshold:.0%}",
                         f"at most {settings.max_iterations} research passes", f"budget soft limit {settings.budget_soft_fraction:.0%}"],
@@ -186,8 +222,8 @@ def _state_channels() -> list[dict[str, Any]]:
 CONTRACT_MODELS: tuple[type[BaseModel], ...] = (
     domain.SubQuestion, domain.SourceDocument, domain.EvidenceChunk, domain.DraftSection, domain.AtomicClaim,
     domain.VerificationResult, domain.ContradictionItem, domain.IterationMetrics, domain.FinalReport,
-    domain.GuardrailFinding, domain.GovernanceSummary, domain.FollowUpAnswer,
-    domain.GuardianOutput, domain.PlannerOutput, domain.RefinementOutput, domain.DraftOutput,
+    domain.GuardrailFinding, domain.GovernanceSummary, domain.FollowUpAnswer, domain.PlanReview, domain.AgentMessage,
+    domain.GuardianOutput, domain.PlannerOutput, domain.PlanReviewOutput, domain.RefinementOutput, domain.DraftOutput,
     domain.ClaimExtractionOutput, domain.ClaimJudgementOutput, domain.ContradictionScanOutput,
     domain.SynthesisOutput, domain.FollowUpOutput,
 )
@@ -222,13 +258,14 @@ def describe_architecture(orchestrator: ResearchOrchestrator, settings: Settings
     nodes = [{"id": node_id, "terminal": node_id in ("__start__", "__end__")} for node_id in compiled.nodes]
     edges = [{"source": e.source, "target": e.target, "conditional": bool(e.conditional), "label": str(e.data or "")}
              for e in compiled.edges]
+    values = {
+        "coverage": f"{settings.coverage_threshold:.0%}", "grounding": f"{settings.grounding_threshold:.0%}",
+        "plan_threshold": f"{settings.plan_approval_threshold:.2f}", "plan_revisions": settings.max_plan_revisions,
+    }
     workflow = []
     for step in WORKFLOW:
-        branches = [
-            {**b, "when": b["when"].format(coverage=f"{settings.coverage_threshold:.0%}", grounding=f"{settings.grounding_threshold:.0%}")}
-            for b in step["branches"]
-        ]
-        workflow.append({**step, "branches": branches})
+        branches = [{**b, "when": b["when"].format(**values)} for b in step["branches"]]
+        workflow.append({**step, "checks": [c.format(**values) for c in step["checks"]], "branches": branches})
     return {
         "graph": {"nodes": nodes, "edges": edges, "mermaid": orchestrator.mermaid()},
         "workflow": workflow,

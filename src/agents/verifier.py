@@ -630,10 +630,16 @@ class VerifierAgent(BaseAgent):
             sq_supported = sum(v.verdict is Verdict.SUPPORTED for v in sq_results)
             if sq_supported:
                 covered += 1
-            failing = [
-                c.text
+            failing_claims = [
+                c
                 for c in claims.get(sq.id, [])
                 if c.claim_id in verdict_of and verdict_of[c.claim_id].verdict is not Verdict.SUPPORTED
+            ]
+            failing = [c.text for c in failing_claims]
+            feedback = [
+                f"{c.text[:160]} — {verdict_of[c.claim_id].verdict.value.lower()}: "
+                f"{(verdict_of[c.claim_id].downgrade_reason or verdict_of[c.claim_id].rationale or 'no supporting span')[:180]}"
+                for c in failing_claims[:6]
             ]
             sq_grounding = sq_supported / len(sq_results) if sq_results else 0.0
             if not sq_supported:
@@ -642,6 +648,7 @@ class VerifierAgent(BaseAgent):
                         sub_question_id=sq.id,
                         reason="no claim for this sub-question survived verification",
                         unsupported_claims=failing,
+                        feedback=feedback,
                     )
                 )
             elif sq_grounding < grounding_threshold:
@@ -650,6 +657,7 @@ class VerifierAgent(BaseAgent):
                         sub_question_id=sq.id,
                         reason=f"{len(failing)} of {len(sq_results)} claims failed verification",
                         unsupported_claims=failing,
+                        feedback=feedback,
                     )
                 )
 

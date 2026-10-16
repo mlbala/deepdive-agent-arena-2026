@@ -118,6 +118,8 @@ class AuditEventType(StrEnum):
     NODE_COMPLETED = "node_completed"
     LLM_CALL = "llm_call"
     PLAN_CREATED = "plan_created"
+    PLAN_REVIEWED = "plan_reviewed"
+    AGENT_MESSAGE = "agent_message"
     SEARCH_EXECUTED = "search_executed"
     SOURCE_INDEXED = "source_indexed"
     REFINEMENT_PLANNED = "refinement_planned"
@@ -332,6 +334,7 @@ class VerificationGap(_Model):
     sub_question_id: str
     reason: str
     unsupported_claims: list[str] = Field(default_factory=list)
+    feedback: list[str] = Field(default_factory=list)  # "claim — why the Verifier rejected it", for the re-draft
 
 
 class IterationMetrics(_Model):
@@ -346,6 +349,56 @@ class IterationMetrics(_Model):
     quote_verification_rate: float
     sources_indexed: int
     target_sub_question_ids: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Plan review & agent group chat
+# ---------------------------------------------------------------------------
+class PlanIssue(_Model):
+    target: str = Field(default="plan", description="'plan' or the sub-question id (SQ-n) the issue is about.")
+    severity: Severity = Severity.MEDIUM
+    problem: str = Field(min_length=3)
+    fix: str = Field(default="", description="A concrete change the Planner can make.")
+    origin: Literal["approver", "check"] = "approver"  # LLM review or deterministic plan check
+    blocking: bool = False  # set by the Approver: this issue alone keeps the plan from passing
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _lower_severity(cls, value: Any) -> Any:
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class PlanReview(_Model):
+    """The Approver's verdict on one version of the plan."""
+
+    round: int = Field(ge=1)
+    score: float = Field(ge=0.0, le=1.0)
+    threshold: float = Field(ge=0.0, le=1.0)
+    passed: bool
+    forced: bool = False  # revision budget spent: the plan proceeds with its issues on record
+    rubric: dict[str, float] = Field(default_factory=dict)
+    issues: list[PlanIssue] = Field(default_factory=list)
+    summary: str = ""
+    llm_reviewed: bool = True  # False when the Approver model was unavailable and only the checks ran
+
+
+class AgentMessage(_Model):
+    """One hand-off in the agents' group chat: what one agent actually passes to the next."""
+
+    message_id: str = Field(default_factory=new_event_id)
+    run_id: str
+    channel: Literal["plan_review", "evidence_loop", "publish"]
+    round: int = Field(default=1, ge=1)
+    sender: str
+    to: list[str] = Field(default_factory=list)
+    kind: Literal["proposal", "critique", "revision", "approval", "evidence", "draft", "verdict", "decision", "report"]
+    text: str
+    items: list[str] = Field(default_factory=list)
+    score: float | None = None
+    threshold: float | None = None
+    passed: bool | None = None
+    refs: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +465,8 @@ class ReportMetrics(_Model):
     llm_calls: int = 0
     total_tokens: int = 0
     llm_latency_ms: int = 0
+    plan_rounds: int = 0
+    plan_score: float = 0.0
 
 
 class FinalReport(_Model):
@@ -459,6 +514,52 @@ class PlannedSubQuestion(_Model):
 class PlannerOutput(_Model):
     research_strategy: str = Field(default="", description="One or two sentences describing the decomposition logic.")
     sub_questions: list[PlannedSubQuestion] = Field(min_length=3, max_length=5)
+    revision_notes: list[str] = Field(
+        default_factory=list, description="Only when revising: each change made and the review issue it addresses."
+    )
+
+
+def _unit_score(value: Any) -> Any:
+    """Accept 0-1, 1-10 or 1-100 scales from the model and normalise to 0-1."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        if 1.0 < value <= 10.0:
+            return value / 10.0
+        if 10.0 < value <= 100.0:
+            return value / 100.0
+    return value
+
+
+class PlanRubric(_Model):
+    coverage: float = Field(ge=0.0, le=1.0, description="Together the sub-questions fully answer the research question.")
+    distinctness: float = Field(ge=0.0, le=1.0, description="No two sub-questions ask for the same facts.")
+    searchability: float = Field(ge=0.0, le=1.0, description="Search queries are concise and will surface primary sources.")
+    premise_check: float = Field(
+        ge=0.0, le=1.0, description="A doubtful premise in the question is tested directly (1.0 if there is none)."
+    )
+    specificity: float = Field(ge=0.0, le=1.0, description="Entities, metrics, jurisdictions and periods are precise.")
+
+    @field_validator("coverage", "distinctness", "searchability", "premise_check", "specificity", mode="before")
+    @classmethod
+    def _scale(cls, value: Any) -> Any:
+        return _unit_score(value)
+
+
+class PlanIssueOut(_Model):
+    target: str = Field(default="plan", description="'plan' or a sub-question id such as SQ-2.")
+    severity: Severity = Severity.MEDIUM
+    problem: str = Field(min_length=3)
+    fix: str = ""
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _lower_severity(cls, value: Any) -> Any:
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class PlanReviewOutput(_Model):
+    rubric: PlanRubric
+    issues: list[PlanIssueOut] = Field(default_factory=list)
+    summary: str = Field(default="", description="1-3 sentences addressed to the Planner.")
 
 
 class RefinementQuery(_Model):

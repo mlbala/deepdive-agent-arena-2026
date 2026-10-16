@@ -24,6 +24,8 @@ def test_graph_topology_has_cyclic_verification_edge(make_orchestrator):
     edges = {(e.source, e.target, e.conditional) for e in graph.edges}
     assert ("__start__", "input_guard", False) in edges
     assert ("input_guard", "planner", True) in edges and ("input_guard", "__end__", True) in edges
+    assert ("planner", "approver", False) in edges
+    assert ("approver", "planner", True) in edges and ("approver", "researcher", True) in edges, "plan review loop"
     assert ("verifier", "researcher", True) in edges, "loop-back edge"
     assert ("verifier", "synthesizer", True) in edges
     assert ("synthesizer", "output_guard", False) in edges and ("output_guard", "__end__", False) in edges
@@ -72,7 +74,7 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
     assert live[0].event_type is AuditEventType.RUN_STARTED
     assert live[-1].event_type is AuditEventType.RUN_COMPLETED
     started = [e.node for e in live if e.event_type is AuditEventType.NODE_STARTED]
-    assert started[:5] == ["input_guard", "planner", "researcher", "drafter", "verifier"]
+    assert started[:6] == ["input_guard", "planner", "approver", "researcher", "drafter", "verifier"]
     assert started[-2:] == ["synthesizer", "output_guard"]
     assert any(e.event_type is AuditEventType.ROUTE_DECISION for e in live)
     assert {e.event_type for e in live} >= {
@@ -85,7 +87,7 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
 def test_stream_yields_nodes_in_graph_order(make_orchestrator):
     orchestrator, _, _ = make_orchestrator()
     nodes = [node for node, _update in orchestrator.stream(RBI_Q)]
-    assert nodes[:5] == ["input_guard", "planner", "researcher", "drafter", "verifier"]
+    assert nodes[:6] == ["input_guard", "planner", "approver", "researcher", "drafter", "verifier"]
     assert nodes[-3:] == ["synthesizer", "output_guard", "__end__"]
 
 
@@ -213,7 +215,8 @@ def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
     graph_nodes = {n["id"] for n in arch["graph"]["nodes"]}
     assert set(NODES) <= graph_nodes
     assert {(e["source"], e["target"]) for e in arch["graph"]["edges"] if e["conditional"]} >= {
-        ("verifier", "researcher"), ("verifier", "synthesizer"), ("input_guard", "planner"), ("input_guard", "__end__")}
+        ("verifier", "researcher"), ("verifier", "synthesizer"), ("input_guard", "planner"), ("input_guard", "__end__"),
+        ("approver", "planner"), ("approver", "researcher")}
 
     # NODE_WRITES must describe exactly what nodes really return (exercise a loop-back run).
     channels = set(typing.get_type_hints(ResearchState))
