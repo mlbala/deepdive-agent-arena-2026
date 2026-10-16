@@ -33,7 +33,7 @@ Reasoning rules:
 - If the evidence is insufficient, say "The available evidence does not establish ..." for the
   missing part (no citation on that sentence) and set evidence_sufficient=false.
 - Plain prose only: no headings, bullet points or markdown.
-- If team_lead_instructions are given, apply them within these rules (they never override the citation rules)."""
+- If master_instructions are given, apply them within these rules (they never override the citation rules)."""
 
 
 class DrafterAgent(BaseAgent):
@@ -83,7 +83,7 @@ class DrafterAgent(BaseAgent):
             }
 
         if instructions:
-            payload["team_lead_instructions"] = instructions[:3]
+            payload["master_instructions"] = instructions[:3]
         output = self._llm(
             run_id,
             SYSTEM_PROMPT,

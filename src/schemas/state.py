@@ -65,7 +65,7 @@ class ResearchState(TypedDict, total=False):
     llm_screen: str
     budget_exhausted: bool
 
-    # --- Planning & plan review (Planner <-> Team Lead) -----------------------
+    # --- Planning & plan review (Planner <-> Master Approver) -----------------------
     sub_questions: list[SubQuestion]
     research_strategy: str
     plan_round: int
@@ -73,10 +73,10 @@ class ResearchState(TypedDict, total=False):
     plan_reviews: Annotated[list[PlanReview], append_list]
     plan_approved: bool
 
-    # --- Team Lead coordination ---------------------------------------------------
-    lead_decision: str  # revise | dispatch | another_round | approve
+    # --- Master Approver coordination ---------------------------------------------------
+    master_decision: str  # revise | dispatch | another_round | approve
     round_reviews: Annotated[list[RoundReview], append_list]
-    lead_instructions: list[AgentInstruction]  # for the next evidence round
+    master_instructions: list[AgentInstruction]  # for the next evidence round
 
     # --- Retrieval (keyed, merged across iterations) --------------------------
     sources: Annotated[dict[str, SourceDocument], merge_dicts]          # source_id -> doc
@@ -133,9 +133,9 @@ def initial_state(
         plan_review=None,
         plan_reviews=[],
         plan_approved=False,
-        lead_decision="",
+        master_decision="",
         round_reviews=[],
-        lead_instructions=[],
+        master_instructions=[],
         sources={},
         evidence={},
         evidence_by_sq={},

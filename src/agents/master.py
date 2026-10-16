@@ -1,10 +1,10 @@
-"""Agent 2 — TeamLeadAgent: the master agent that coordinates every other agent.
+"""Agent 2 — MasterApproverAgent: the master agent that approves the plan and every round of the group's work.
 
-The Team Lead is the hub of the LangGraph (a supervisor pattern):
+The Master Approver is the hub of the LangGraph (a supervisor pattern):
 
-    planner -> lead -> planner            plan review: revise until the plan clears the bar
-    lead -> researcher -> drafter -> verifier -> lead     evidence rounds in the group chat
-    lead -> synthesizer                   approval: the verified work goes to the Synthesizer
+    planner -> master -> planner            plan review: revise until the plan clears the bar
+    master -> researcher -> drafter -> verifier -> master     evidence rounds in the group chat
+    master -> synthesizer                   approval: the verified work goes to the Synthesizer
 
 Plan review. Each version of the plan is scored on a five-part rubric (via Mesh) plus
 deterministic plan checks. It goes back to the Planner with concrete fixes until
@@ -15,10 +15,10 @@ or MAX_PLAN_REVISIONS is spent (`forced`: proceed with the open issues on record
 high-severity issue always blocks; a model-raised one blocks only when the model's own rubric
 corroborates it (a criterion below 0.70), because severity labels from a model are noisy.
 
-Round review. After every Researcher -> Drafter -> Verifier round the Team Lead reads the
+Round review. After every Researcher -> Drafter -> Verifier round the Master Approver reads the
 Verifier's report. The deterministic quality gate (`route_verification`) is a floor it cannot
 lower: below the grounding/coverage bar, with rounds and budget left, the group goes again. Above
-the bar the Team Lead may add up to LEAD_EXTRA_ROUNDS targeted passes on sub-questions that still
+the bar the Master Approver may add up to MASTER_EXTRA_ROUNDS targeted passes on sub-questions that still
 have gaps, or approve the work for synthesis. Either way it writes an instruction for each agent,
 and the Researcher and Drafter receive those instructions in the next round.
 """
@@ -48,8 +48,8 @@ from src.schemas.domain import (
 )
 from src.storage.vector_store import tokenize
 
-PLAN_PROMPT = """ROLE: lead.plan
-You are DeepDive's TEAM LEAD, the master agent who coordinates the Planner, Researcher, Drafter and
+PLAN_PROMPT = """ROLE: master.plan
+You are DeepDive's MASTER APPROVER, the master agent who coordinates and approves the Planner, Researcher, Drafter and
 Verifier. Before any retrieval runs you sign off on the research plan. You never answer the research
 question yourself.
 
@@ -72,8 +72,8 @@ If previous_review_issues are given, check whether each was fixed. Do not repeat
 revision addressed; raise it again only if it is clearly still unresolved.
 Write a 1-3 sentence summary addressed to the Planner."""
 
-ROUND_PROMPT = """ROLE: lead.review
-You are DeepDive's TEAM LEAD, the master agent coordinating the Researcher, Drafter and Verifier in
+ROUND_PROMPT = """ROLE: master.review
+You are DeepDive's MASTER APPROVER, the master agent coordinating the Researcher, Drafter and Verifier in
 the evidence group chat. After each round you read the Verifier's report and decide what happens next.
 
 You receive the round's metrics, the deterministic quality gate's verdict, the sub-questions that
@@ -160,8 +160,8 @@ def plan_checks(question: str, sub_questions: list[SubQuestion]) -> list[PlanIss
 
 
 
-class TeamLeadAgent(BaseAgent):
-    name = "lead"
+class MasterApproverAgent(BaseAgent):
+    name = "master"
 
     def review_plan(
         self,
@@ -208,7 +208,7 @@ class TeamLeadAgent(BaseAgent):
             llm_issues = [
                 PlanIssue(
                     target=i.target if i.target in known else "plan",
-                    severity=i.severity, problem=i.problem, fix=i.fix, origin="lead",
+                    severity=i.severity, problem=i.problem, fix=i.fix, origin="master",
                 )
                 for i in output.issues[:6]
             ]
@@ -216,7 +216,7 @@ class TeamLeadAgent(BaseAgent):
         except (MeshTransientError, MeshStructuredOutputError) as exc:
             # fail open on the model, never on the checks: the deterministic issues still gate the plan
             llm_reviewed = False
-            summary = f"The Team Lead model was unavailable ({type(exc).__name__}); only the deterministic plan checks ran."
+            summary = f"The Master Approver model was unavailable ({type(exc).__name__}); only the deterministic plan checks ran."
             if collector is not None:
                 collector.emit(AuditEventType.WARNING, summary)
 
@@ -241,7 +241,7 @@ class TeamLeadAgent(BaseAgent):
             verdict = "approved" if passed else ("proceeding with open issues" if forced else "sent back to the Planner")
             collector.emit(
                 AuditEventType.PLAN_REVIEWED,
-                f"Team Lead plan review {plan_round}: score {score:.2f} (needs {threshold:.2f}), {len(blocking)} blocking issue(s) -> {verdict}",
+                f"Master Approver plan review {plan_round}: score {score:.2f} (needs {threshold:.2f}), {len(blocking)} blocking issue(s) -> {verdict}",
                 **review.model_dump(mode="json"),
             )
         return review
@@ -265,7 +265,7 @@ class TeamLeadAgent(BaseAgent):
         iteration = metrics.iteration
         gap_ids = [g.sub_question_id for g in gaps]
         rounds_left = iteration < max_iterations and not budget_exhausted
-        can_extend = gate_passed and rounds_left and bool(gap_ids) and extra_rounds_used < self.settings.lead_extra_rounds
+        can_extend = gate_passed and rounds_left and bool(gap_ids) and extra_rounds_used < self.settings.master_extra_rounds
         output: RoundReviewOutput | None = None
         if floor == "researcher" or can_extend:  # only ask the model when its answer can change the plan
             by_id = {sq.id: sq for sq in sub_questions}
@@ -306,7 +306,7 @@ class TeamLeadAgent(BaseAgent):
             except (MeshTransientError, MeshStructuredOutputError) as exc:
                 # fail open on the model: the deterministic gate still decides, instructions come from the gaps
                 if collector is not None:
-                    collector.emit(AuditEventType.WARNING, f"Team Lead round review unavailable ({type(exc).__name__}); the quality gate decides")
+                    collector.emit(AuditEventType.WARNING, f"Master Approver round review unavailable ({type(exc).__name__}); the quality gate decides")
 
         extra = overruled = False
         if floor == "researcher":
@@ -316,7 +316,7 @@ class TeamLeadAgent(BaseAgent):
         elif can_extend and output is not None and output.decision == "another_round":
             decision = "another_round"
             targets = [s for s in output.focus_sub_question_ids if s in gap_ids] or gap_ids
-            reason, extra = "the bar is met, but the Team Lead wants one more targeted pass", True
+            reason, extra = "the bar is met, but the Master Approver wants one more targeted pass", True
         else:
             decision, targets = "approve", []
             if gate_passed:
@@ -372,7 +372,7 @@ class TeamLeadAgent(BaseAgent):
         if collector is not None:
             collector.emit(
                 AuditEventType.ROUND_REVIEWED,
-                f"Team Lead round {iteration}: {decision.replace('_', ' ')} ({reason})",
+                f"Master Approver round {iteration}: {decision.replace('_', ' ')} ({reason})",
                 **review.model_dump(mode="json"),
             )
         return review

@@ -1,7 +1,7 @@
 # CLAUDE.md — DeepDive engineering standards
 
 DeepDive (Agent Arena 2026, Track 01) is a self-verifying multi-agent research system:
-Planner ⇄ Team Lead (master agent, plan review) → Researcher → Drafter → Verifier → Team Lead (round review:
+Planner ⇄ Master Approver (plan review) → Researcher → Drafter → Verifier → Master Approver (round review:
 another round | Synthesizer), plus a FollowUp agent, wired as a LangGraph `StateGraph` (supervisor pattern) and
 served by FastAPI. Every node posts its real hand-off to the agents' group chat (`AGENT_MESSAGE` audit events).
 
@@ -56,7 +56,7 @@ docker compose up --build                             # full stack in a containe
 | `src/schemas/` | Pydantic domain models + LangGraph `ResearchState` with reducers |
 | `src/storage/` | SQLAlchemy audit store (runs, traces, claims, sources) + hybrid evidence index |
 | `src/tools/` | Source authority scorer, 3-tier web retriever, document ingestor, PDF exporter |
-| `src/agents/` | Guardian + Team Lead (`lead.py`) + six agents + LangGraph orchestrator (`input_guard`, `route_lead`, `route_verification` as the gate floor, `output_guard`), group-chat messages, architecture catalog |
+| `src/agents/` | Guardian + Master Approver (`master.py`) + six agents + LangGraph orchestrator (`input_guard`, `route_master`, `route_verification` as the gate floor, `output_guard`), group-chat messages, architecture catalog |
 | `src/guardrails/` | Input/content/output shields, injection & harm patterns, PII/secret redaction, SSRF policy |
 | `src/api/` | FastAPI app, security middleware, REST + SSE routes, dashboard (ES modules in `static/`) |
 | `eval/` | Benchmark questions, evaluation harness, committed metrics |

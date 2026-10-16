@@ -24,10 +24,10 @@ def test_graph_topology_has_cyclic_verification_edge(make_orchestrator):
     edges = {(e.source, e.target, e.conditional) for e in graph.edges}
     assert ("__start__", "input_guard", False) in edges
     assert ("input_guard", "planner", True) in edges and ("input_guard", "__end__", True) in edges
-    assert ("planner", "lead", False) in edges and ("verifier", "lead", False) in edges, "the Team Lead is the hub"
-    assert {("lead", "planner", True), ("lead", "researcher", True), ("lead", "synthesizer", True)} <= edges
+    assert ("planner", "master", False) in edges and ("verifier", "master", False) in edges, "the Master Approver is the hub"
+    assert {("master", "planner", True), ("master", "researcher", True), ("master", "synthesizer", True)} <= edges
     assert ("synthesizer", "output_guard", False) in edges and ("output_guard", "__end__", False) in edges
-    assert "lead -.-> researcher" in orchestrator.mermaid()
+    assert "master -.-> researcher" in orchestrator.mermaid()
 
 
 def test_full_run_persists_a_consistent_audit_record(make_orchestrator):
@@ -72,7 +72,7 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
     assert live[0].event_type is AuditEventType.RUN_STARTED
     assert live[-1].event_type is AuditEventType.RUN_COMPLETED
     started = [e.node for e in live if e.event_type is AuditEventType.NODE_STARTED]
-    assert started[:7] == ["input_guard", "planner", "lead", "researcher", "drafter", "verifier", "lead"]
+    assert started[:7] == ["input_guard", "planner", "master", "researcher", "drafter", "verifier", "master"]
     assert started[-2:] == ["synthesizer", "output_guard"]
     assert any(e.event_type is AuditEventType.ROUTE_DECISION for e in live)
     assert {e.event_type for e in live} >= {
@@ -85,7 +85,7 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
 def test_stream_yields_nodes_in_graph_order(make_orchestrator):
     orchestrator, _, _ = make_orchestrator()
     nodes = [node for node, _update in orchestrator.stream(RBI_Q)]
-    assert nodes[:7] == ["input_guard", "planner", "lead", "researcher", "drafter", "verifier", "lead"]
+    assert nodes[:7] == ["input_guard", "planner", "master", "researcher", "drafter", "verifier", "master"]
     assert nodes[-3:] == ["synthesizer", "output_guard", "__end__"]
 
 
@@ -213,7 +213,7 @@ def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
     graph_nodes = {n["id"] for n in arch["graph"]["nodes"]}
     assert set(NODES) <= graph_nodes
     assert {(e["source"], e["target"]) for e in arch["graph"]["edges"] if e["conditional"]} >= {
-        ("lead", "researcher"), ("lead", "synthesizer"), ("lead", "planner"), ("input_guard", "planner"),
+        ("master", "researcher"), ("master", "synthesizer"), ("master", "planner"), ("input_guard", "planner"),
         ("input_guard", "__end__")}
 
     # NODE_WRITES must describe exactly what nodes really return (exercise a loop-back run).

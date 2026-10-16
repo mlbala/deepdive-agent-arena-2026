@@ -445,7 +445,7 @@ button.dclaim:hover { border-color: rgb(var(--accent) / .45); background: rgb(va
 
 /* ------------------------------------------------------------------ agent pipeline: two quality-gated rooms */
 .pipe { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 36px minmax(0, 1fr) 36px minmax(0, 3.3fr) 36px minmax(0, 1fr) 36px minmax(0, 1fr); grid-template-rows: auto auto; row-gap: 58px; align-items: start; }
-.plead { grid-row: 1; grid-column: 5; }
+.pmaster { grid-row: 1; grid-column: 5; }
 .p3-c1 { grid-row: 2; grid-column: 1; } .p3-c3 { grid-row: 2; grid-column: 3; } .p3-c7 { grid-row: 2; grid-column: 7; } .p3-c9 { grid-row: 2; grid-column: 9; }
 .pgroup { grid-row: 2; grid-column: 5; }
 .pcard.p3-solo { margin-top: 11.5px; }
@@ -544,23 +544,23 @@ button.dclaim:hover { border-color: rgb(var(--accent) / .45); background: rgb(va
 .tl-row.tone-chat .tl-text, .dlog-row.tone-chat .dlog-msg { color: rgb(var(--indigo-t)); }
 .pcard-sub { width: 100%; margin-top: -3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 10px; color: rgb(var(--t-4)); }
 
-/* ------------------------------------------------------------------ Team Lead hub + wires */
-.plead { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; padding: 12px 14px; border-radius: 18px; background: rgb(var(--card)); border: 1.5px solid color-mix(in srgb, var(--c) 40%, var(--line)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 7%, transparent), var(--shadow-1); transition: box-shadow .3s ease, border-color .3s ease; }
-.plead[data-state="active"] { border-color: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent), 0 10px 28px color-mix(in srgb, var(--c) 20%, transparent); }
-.plead[data-state="active"] .pcard-icon { animation: pulse 1.2s infinite; }
-.plead[data-state="idle"] { opacity: .8; }
-.plead[data-state="skipped"] { opacity: .35; }
-.plead-main { display: flex; min-width: 0; align-items: center; gap: 12px; }
-.plead-main .pcard-icon { flex-shrink: 0; width: 46px; height: 46px; border-radius: 14px; }
-.plead-main .pcard-icon svg { width: 24px; height: 24px; }
-.plead-title { font-size: 15px; font-weight: 700; letter-spacing: -.015em; color: rgb(var(--t-1)); }
-.plead-title span { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0; color: rgb(var(--t-4)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.plead-status { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; color: rgb(var(--t-2)); }
-.plead-status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plead-mesh { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; color: rgb(var(--purple-t) / .85); }
-.plead-gates { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 8px; }
-.plead-gk { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgb(var(--t-4)); white-space: nowrap; }
-.plead .pgate { margin-top: 0; }
+/* ------------------------------------------------------------------ Master Approver hub + wires */
+.pmaster { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; padding: 12px 14px; border-radius: 18px; background: rgb(var(--card)); border: 1.5px solid color-mix(in srgb, var(--c) 40%, var(--line)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 7%, transparent), var(--shadow-1); transition: box-shadow .3s ease, border-color .3s ease; }
+.pmaster[data-state="active"] { border-color: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 22%, transparent), 0 10px 28px color-mix(in srgb, var(--c) 20%, transparent); }
+.pmaster[data-state="active"] .pcard-icon { animation: pulse 1.2s infinite; }
+.pmaster[data-state="idle"] { opacity: .8; }
+.pmaster[data-state="skipped"] { opacity: .35; }
+.pmaster-main { display: flex; min-width: 0; align-items: center; gap: 12px; }
+.pmaster-main .pcard-icon { flex-shrink: 0; width: 46px; height: 46px; border-radius: 14px; }
+.pmaster-main .pcard-icon svg { width: 24px; height: 24px; }
+.pmaster-title { font-size: 15px; font-weight: 700; letter-spacing: -.015em; color: rgb(var(--t-1)); }
+.pmaster-title span { display: block; font-size: 11px; font-weight: 500; letter-spacing: 0; color: rgb(var(--t-4)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pmaster-status { display: flex; min-width: 0; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; color: rgb(var(--t-2)); }
+.pmaster-status span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmaster-mesh { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9.5px; color: rgb(var(--purple-t) / .85); }
+.pmaster-gates { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 8px; }
+.pmaster-gk { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgb(var(--t-4)); white-space: nowrap; }
+.pmaster .pgate { margin-top: 0; }
 .pgroup { position: relative; z-index: 1; border-radius: 18px; padding: 10px 10px 8px; border: 1.5px dashed rgb(var(--green) / .35); background: rgb(var(--green) / .035); transition: border-color .3s ease, box-shadow .3s ease; }
 .pgroup[data-active="true"] { border-style: solid; border-color: rgb(var(--green) / .55); box-shadow: 0 0 0 4px rgb(var(--green) / .09); }
 .pgroup-f { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding: 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--green-t)); white-space: nowrap; overflow: hidden; }
@@ -581,6 +581,7 @@ button.dclaim:hover { border-color: rgb(var(--accent) / .45); background: rgb(va
 .wlabel.w-loop { color: rgb(var(--orange-t)); border-color: rgb(var(--orange) / .55); background: color-mix(in srgb, rgb(var(--orange)) 8%, rgb(var(--card))); }
 .wlabel.w-ok { color: rgb(var(--green-t)); border-color: rgb(var(--green) / .5); background: color-mix(in srgb, rgb(var(--green)) 8%, rgb(var(--card))); }
 .wlabel.w-on { color: rgb(var(--t-3)); }
-.lead-quote { margin: 4px 0 0; padding: 10px 14px; border-left: 3px solid rgb(var(--indigo)); border-radius: 0 12px 12px 0; background: rgb(var(--indigo) / .07); font-size: 14px; line-height: 1.55; color: rgb(var(--t-1)); }
+.master-quote { margin: 4px 0 0; padding: 10px 14px; border-left: 3px solid rgb(var(--indigo)); border-radius: 0 12px 12px 0; background: rgb(var(--indigo) / .07); font-size: 14px; line-height: 1.55; color: rgb(var(--t-1)); }
 #archSvg .room-frame { fill: rgb(var(--green) / .04); stroke: rgb(var(--green) / .38); stroke-width: 1.2; stroke-dasharray: 5 5; }
 #archSvg .room-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; fill: rgb(var(--green-t)); }
+.pgroup-f svg { flex-shrink: 0; width: 13px; height: 13px; }

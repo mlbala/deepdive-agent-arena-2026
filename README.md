@@ -58,7 +58,7 @@ flowchart LR
         direction LR
         IG[0 · Input shield<br/>+ Guardian LLM screen] -->|passed| P[1 · Planner<br/>MECE sub-questions]
         IG -->|blocked| X([END · blocked run])
-        P -->|plan| L{{2 · Team Lead · master agent<br/>plan gate · round gate · instructions}}
+        P -->|plan| L{{2 · Master Approver<br/>approves the plan + every round · instructions}}
         L -->|revise: score &lt; 0.80 or blocking issue| P
         L -->|dispatch / another round + instructions| R
         subgraph EV[Evidence group chat]
@@ -79,26 +79,26 @@ flowchart LR
     API --> F[7 · FollowUp agent<br/>grounded chat] --> VS
 ```
 
-The compiled graph (`GET /api/graph` returns it live) is a supervisor pattern with the **Team Lead** (`lead`) as its hub, plus one guard edge:
+The compiled graph (`GET /api/graph` returns it live) is a supervisor pattern with the **Master Approver** (`master`) as its hub, plus one guard edge:
 
 - `input_guard -.-> planner | END` ends a blocked question before any research agent runs.
-- `planner -> lead -.-> planner` is **plan review**. The Team Lead scores each version of the plan on a five-part rubric plus deterministic checks, and sends it back with concrete fixes until it scores at least `PLAN_APPROVAL_THRESHOLD` (0.80) with no blocking issue, or `MAX_PLAN_REVISIONS` (2) is spent. Deterministic high-severity issues always block; a high-severity issue raised by the model blocks only when the model's own rubric agrees (a criterion below 0.70), because severity labels from a model are noisy. Retrieval is the expensive part of a run, so a weak plan is cheapest to fix here.
-- `lead -.-> researcher -> drafter -> verifier -> lead` is the **evidence group chat**, repeated round after round. The Verifier reports every round to the Team Lead. The deterministic quality gate (`route_verification`: coverage ≥ 0.70 and grounding ≥ 0.75) is a floor the Team Lead cannot lower: below it, with rounds and budget left, the group must go again. Above it the Team Lead approves, or adds up to `LEAD_EXTRA_ROUNDS` (1) targeted pass on sub-questions that still have gaps. Every round it orders comes with an instruction for the Researcher and the Drafter on each weak sub-question.
-- `lead -.-> synthesizer` happens only when the Team Lead approves the work.
+- `planner -> master -.-> planner` is **plan review**. The Master Approver scores each version of the plan on a five-part rubric plus deterministic checks, and sends it back with concrete fixes until it scores at least `PLAN_APPROVAL_THRESHOLD` (0.80) with no blocking issue, or `MAX_PLAN_REVISIONS` (2) is spent. Deterministic high-severity issues always block; a high-severity issue raised by the model blocks only when the model's own rubric agrees (a criterion below 0.70), because severity labels from a model are noisy. Retrieval is the expensive part of a run, so a weak plan is cheapest to fix here.
+- `master -.-> researcher -> drafter -> verifier -> master` is the **evidence group chat**, repeated round after round. The Verifier reports every round to the Master Approver. The deterministic quality gate (`route_verification`: coverage ≥ 0.70 and grounding ≥ 0.75) is a floor the Master Approver cannot lower: below it, with rounds and budget left, the group must go again. Above it the Master Approver approves, or adds up to `MASTER_EXTRA_ROUNDS` (1) targeted pass on sub-questions that still have gaps. Every round it orders comes with an instruction for the Researcher and the Drafter on each weak sub-question.
+- `master -.-> synthesizer` happens only when the Master Approver approves the work.
 
 ### The agents' group chat
 
-Each node posts what it actually hands to the next agent: the plan, the Team Lead's review and team brief, the evidence pool, the drafts, the Verifier's round report with per-claim rejection reasons, and every Team Lead decision. The messages are built from the same structured results the receiving agent consumes, so the chat is the real hand-off, not narration. Each one is an `AGENT_MESSAGE` audit event, so it is persisted, streamed live over SSE, and covered by the run's hash chain. `GET /api/runs/{id}/chat` returns the transcript.
+Each node posts what it actually hands to the next agent: the plan, the Master Approver's review and team brief, the evidence pool, the drafts, the Verifier's round report with per-claim rejection reasons, and every Master Approver decision. The messages are built from the same structured results the receiving agent consumes, so the chat is the real hand-off, not narration. Each one is an `AGENT_MESSAGE` audit event, so it is persisted, streamed live over SSE, and covered by the run's hash chain. `GET /api/runs/{id}/chat` returns the transcript.
 
-The feedback is used, not just shown. A revised plan has to address the Team Lead's listed issues. On the next round, the Researcher's refinement queries and the Drafter's re-draft both receive the Team Lead's instructions, and the Drafter also gets the Verifier's reason for every rejected claim (wrong source, altered figure, no verbatim support).
+The feedback is used, not just shown. A revised plan has to address the Master Approver's listed issues. On the next round, the Researcher's refinement queries and the Drafter's re-draft both receive the Master Approver's instructions, and the Drafter also gets the Verifier's reason for every rejected claim (wrong source, altered figure, no verbatim support).
 
 ### The agents
 
 | Agent | Input → output contract | What makes it distinct |
 | --- | --- | --- |
 | **Guardian** | question → `GuardianOutput` | A Mesh LLM safety classifier that runs after the deterministic input shield. It can only block at ≥ 0.80 confidence and fails open, because the deterministic shield has already passed the input |
-| **Planner** | question → `PlannerOutput` (3–5 `SubQuestion`s) | Non-overlapping split, premise-check sub-question, near-duplicate removal (Jaccard > 0.8); revises the plan against the Team Lead's issues and records each change |
-| **Team Lead** (master agent) | plan → `PlanReviewOutput` → `PlanReview`; round report → `RoundReviewOutput` → `RoundReview` + `AgentInstruction`s | The hub of the graph. Approves the plan (rubric + deterministic checks, model-raised blocks need rubric corroboration), dispatches the group, reviews every round and approves the verified work for synthesis. It cannot approve below the quality gate while rounds and budget remain, extra rounds are bounded, and it fails open on the model but never on the checks or the gate |
+| **Planner** | question → `PlannerOutput` (3–5 `SubQuestion`s) | Non-overlapping split, premise-check sub-question, near-duplicate removal (Jaccard > 0.8); revises the plan against the Master Approver's issues and records each change |
+| **Master Approver** | plan → `PlanReviewOutput` → `PlanReview`; round report → `RoundReviewOutput` → `RoundReview` + `AgentInstruction`s | The hub of the graph. Approves the plan (rubric + deterministic checks, model-raised blocks need rubric corroboration), dispatches the group, reviews every round and approves the verified work for synthesis. It cannot approve below the quality gate while rounds and budget remain, extra rounds are bounded, and it fails open on the model but never on the checks or the gate |
 | **Researcher** | sub-questions + gaps → `SourceDocument`s, `EvidenceChunk`s | Parallel 3-tier search, URL + content-hash dedupe, `SRC-001…` ids, span-exact chunking, retrieval ranked 65% relevance / 35% authority with ≤ 2 chunks per source; on loop-back it asks Mesh for **targeted refinement queries** built from the Verifier's gaps |
 | **Drafter** | sub-question + evidence → `DraftSection` | Answers only from the evidence; every factual sentence cited; conflicts stated with both sources; citations outside the evidence pool are flagged; on a re-draft it gets the Verifier's reason for each rejected claim |
 | **Verifier** | drafts → `AtomicClaim`s, `VerificationResult`s, `ContradictionItem`s, `IterationMetrics` | Claim decomposition, entailment against cited spans only, deterministic guards, contradiction radar, per-sub-question gaps that drive the loop |
@@ -295,7 +295,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `MESH_API_KEY` | — | **Required** for research runs |
 | `MESH_BASE_URL` | `https://api.meshapi.ai/v1` | Mesh gateway |
 | `MESH_DEFAULT_MODEL` | `openai/gpt-4o-mini` | Model for every agent |
-| `PLANNER_MODEL`, `LEAD_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
+| `PLANNER_MODEL`, `MASTER_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
 | `MESH_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Dense retrieval embeddings (through Mesh) |
 | `MESH_MAX_RETRIES` / `MESH_JSON_REPAIR_ATTEMPTS` | 4 / 2 | Transient-error backoff / schema self-healing rounds |
 | `TAVILY_API_KEY` | — | Optional Tier-1 retrieval |
@@ -303,8 +303,8 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `VECTOR_BACKEND` | `hybrid` | `hybrid` (BM25 + Chroma) · `tfidf` |
 | `MAX_ITERATIONS` | 3 | Research passes before synthesis is forced |
 | `COVERAGE_THRESHOLD` / `GROUNDING_THRESHOLD` | 0.70 / 0.75 | Loop-back thresholds |
-| `PLAN_APPROVAL_THRESHOLD` / `MAX_PLAN_REVISIONS` | 0.80 / 2 | Team Lead plan gate: the minimum plan score, and how many times the plan can be sent back |
-| `LEAD_EXTRA_ROUNDS` | 1 | Targeted extra passes the Team Lead may order after the quality gate has passed (never beyond `MAX_ITERATIONS`) |
+| `PLAN_APPROVAL_THRESHOLD` / `MAX_PLAN_REVISIONS` | 0.80 / 2 | Master Approver plan gate: the minimum plan score, and how many times the plan can be sent back |
+| `MASTER_EXTRA_ROUNDS` | 1 | Targeted extra passes the Master Approver may order after the quality gate has passed (never beyond `MAX_ITERATIONS`) |
 | `MIN_SOURCE_AUTHORITY` | 0.45 | Evidence admissibility floor |
 | `DATABASE_URL` | `sqlite:///./data/deepdive.db` | Audit store |
 | `GUARDRAILS_ENABLED` / `GUARDRAIL_LLM_SCREEN` | true / true | Shields on/off · Guardian LLM screen |
@@ -332,7 +332,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `GET /api/runs/{id}/sources[/{sid}]` | Scored sources; the detail view includes content, indexed spans, and verified-quote ranges |
 | `GET /api/runs/{id}/traces` | Immutable per-call Mesh traces (model, latency, tokens, attempts, repairs) plus per-agent rollup |
 | `GET /api/runs/{id}/audit` | Persisted audit trail |
-| `GET /api/runs/{id}/report.pdf` | Designed executive PDF: cover with verification seal, metric tiles and agent workflow diagram; Team Lead plan and round reviews; verification dashboard charts; findings with confidence bars; contradiction radar; sources with authority bars; methodology; appendices for the claim audit, stripped claims, the agents' group chat, governance and the audit chain, and Mesh telemetry |
+| `GET /api/runs/{id}/report.pdf` | Designed executive PDF: cover with verification seal, metric tiles and agent workflow diagram; Master Approver plan and round reviews; verification dashboard charts; findings with confidence bars; contradiction radar; sources with authority bars; methodology; appendices for the claim audit, stripped claims, the agents' group chat, governance and the audit chain, and Mesh telemetry |
 | `POST /api/runs/{id}/followup` | Follow-up Q&A grounded in the run's evidence |
 | `POST /api/documents` | Upload PDF/TXT/MD (deduplicated by content hash) to use as private evidence |
 | `GET /api/health` · `GET /api/graph` | Non-secret config and status · live Mermaid diagram of the compiled graph |
@@ -354,9 +354,9 @@ An Apple-style interface: system typography, glass navigation, a segmented mode 
 
 **Live Demo** (the landing page) runs six scenarios for real, or replays recorded runs, stage by stage: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
 
-The **agent pipeline** above the stages puts the **Team Lead** (master agent) on top, with its plan gate and round gate. Live wires connect it to every agent: "plan" and "revise" with the Planner; "dispatch" or "another round", "instructions" and "round report" with the Researcher, Drafter and Verifier in the **evidence group chat**; and "approved" to the Synthesizer. Each card shows its live result, its round (R2, R3…) and its Mesh calls and tokens. Beside the stages, the **Group chat** panel plays the agents' conversation in sync with the replay: who handed what to whom, the Team Lead's issues, fixes and instructions, the Verifier's rejected claims, and every decision with its score. The **Team Lead reviews round N** stage shows its rationale, the instructions it gave each agent and the gauges against the gate. The console has the same transcript under **Agent Chat**.
+The **agent pipeline** above the stages puts the **Master Approver** on top, with its plan gate and round gate. Live wires connect it to every agent: "plan" and "revise" with the Planner; "dispatch" or "another round", "instructions" and "round report" with the Researcher, Drafter and Verifier in the **evidence group chat**; and "approved" to the Synthesizer. Each card shows its live result, its round (R2, R3…) and its Mesh calls and tokens. Beside the stages, the **Group chat** panel plays the agents' conversation in sync with the replay: who handed what to whom, the Master Approver's issues, fixes and instructions, the Verifier's rejected claims, and every decision with its score. The **Master Approver reviews round N** stage shows its rationale, the instructions it gave each agent and the gauges against the gate. The console has the same transcript under **Agent Chat**.
 
-**How it works** is an interactive map of DeepDive's own LangGraph, with the Team Lead as the hub above the evidence group chat, the input and output shields, the evidence index, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
+**How it works** is an interactive map of DeepDive's own LangGraph, with the Master Approver as the hub above the evidence group chat, the input and output shields, the evidence index, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
 
 The view has five tabs:
 
@@ -399,7 +399,7 @@ Power tools:
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
 - **Verifier and loop:** all four quote-localisation tiers, rejection of altered numbers, each guard's downgrade path, contradiction quote validation, metrics and gaps, the `route_verification` decision matrix, an end-to-end loop-back that repairs a hallucinated draft, and the loop stopping at `max_iterations`
-- **Team Lead and group chat:** a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Team Lead cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
+- **Master Approver and group chat:** a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
@@ -411,7 +411,7 @@ src/core/        config (BaseSettings), mesh_gateway (only LLM egress), typed ex
 src/schemas/     domain contracts + LLM I/O contracts, LangGraph ResearchState with reducers
 src/storage/     SQLAlchemy audit store (append-only guards), hybrid BM25 + Chroma evidence index
 src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exporter, offline_corpus.json
-src/agents/      guardian, planner, lead (Team Lead), researcher, drafter, verifier, synthesizer, followup, orchestrator, base,
+src/agents/      guardian, planner, master (Master Approver), researcher, drafter, verifier, synthesizer, followup, orchestrator, base,
                  group_chat (agent hand-off messages), catalog (introspected architecture description)
 src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
 src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI

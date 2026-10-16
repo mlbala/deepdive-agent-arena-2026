@@ -1,21 +1,21 @@
-"""LangGraph orchestrator: a Team Lead (master agent) supervising a group of agents, plus guardrails.
+"""LangGraph orchestrator: a Master Approver supervising a group of agents, plus guardrails.
 
     START -> input_guard --(blocked)--> END
                  |
                  v
-              planner <--revise-- lead (Team Lead) --approve--> synthesizer -> output_guard -> END
+              planner <--revise-- master (Master Approver) --approve--> synthesizer -> output_guard -> END
                  |                  ^  |
                  +------plan--------+  | dispatch / another round
                                     |  v
                                     |  researcher -> drafter -> verifier
                                     +------------ round report ------+      (evidence group chat)
 
-The Team Lead (`lead`) is the hub. It reviews every version of the plan (Mesh rubric +
+The Master Approver (`master`) is the hub. It reviews every version of the plan (Mesh rubric +
 deterministic checks) and sends it back to the Planner until it clears PLAN_APPROVAL_THRESHOLD
 or MAX_PLAN_REVISIONS is spent. It then dispatches the Researcher -> Drafter -> Verifier group
 and reviews each round's report: below the quality gate's bar it must send the group back (with
 instructions per agent); above it, it approves the work for the Synthesizer or adds up to
-LEAD_EXTRA_ROUNDS targeted passes. Every node posts its real hand-off to the agents' group chat
+MASTER_EXTRA_ROUNDS targeted passes. Every node posts its real hand-off to the agents' group chat
 (`state["group_chat"]`, AGENT_MESSAGE audit events), so the whole conversation is auditable.
 
 `input_guard` runs the deterministic input shield (prompt injection, harmful requests,
@@ -23,7 +23,7 @@ PII/secret redaction) and the Mesh-backed Guardian classifier; a blocked questio
 run before any research agent sees it. `output_guard` redacts the published report and
 attaches the governance summary (findings, budgets, models, audit-chain head).
 
-`route_verification` is the deterministic floor under the Team Lead's round decision: another
+`route_verification` is the deterministic floor under the Master Approver's round decision: another
 round — with targeted refinement queries for only the failing sub-questions — is mandatory while
 
     coverage_score < COVERAGE_THRESHOLD (0.70)  or  grounding_rate < GROUNDING_THRESHOLD (0.75)
@@ -48,7 +48,7 @@ from src.agents.base import EventCollector, EventSink
 from src.agents.drafter import DrafterAgent
 from src.agents.followup import FollowUpAgent
 from src.agents.guardian import GuardianAgent
-from src.agents.lead import TeamLeadAgent
+from src.agents.master import MasterApproverAgent
 from src.agents.planner import PlannerAgent
 from src.agents.researcher import ResearcherAgent
 from src.agents.synthesizer import SynthesizerAgent
@@ -78,8 +78,8 @@ from src.tools.web_search import WebRetriever
 logger = logging.getLogger(__name__)
 
 Route = Literal["researcher", "synthesizer"]
-NODES = ("input_guard", "planner", "lead", "researcher", "drafter", "verifier", "synthesizer", "output_guard")
-LLM_AGENTS = ("guardian", "planner", "lead", "researcher", "drafter", "verifier", "synthesizer")
+NODES = ("input_guard", "planner", "master", "researcher", "drafter", "verifier", "synthesizer", "output_guard")
+LLM_AGENTS = ("guardian", "planner", "master", "researcher", "drafter", "verifier", "synthesizer")
 DISCLAIMER = (
     "AI-generated research brief. Every published claim passed entailment checking against a verbatim span of "
     "its cited source, but sources can be wrong or outdated: verify decision-critical facts against the cited originals."
@@ -108,9 +108,9 @@ def route_after_guard(state: ResearchState) -> Literal["planner", "__end__"]:
     return "__end__" if state.get("blocked") else "planner"
 
 
-def route_lead(state: ResearchState) -> Literal["planner", "researcher", "synthesizer"]:
-    """Conditional edge out of the Team Lead: revise the plan, run a group round, or synthesize."""
-    decision = state.get("lead_decision")
+def route_master(state: ResearchState) -> Literal["planner", "researcher", "synthesizer"]:
+    """Conditional edge out of the Master Approver: revise the plan, run a group round, or synthesize."""
+    decision = state.get("master_decision")
     if decision == "revise":
         return "planner"
     if decision in ("dispatch", "another_round"):
@@ -138,7 +138,7 @@ class ResearchOrchestrator:
         self.event_sink = event_sink
         loader: Callable[[Sequence[str]], list[dict[str, Any]]] | None = store.get_documents if store else None
         self.planner = PlannerAgent(gateway, settings)
-        self.lead = TeamLeadAgent(gateway, settings)
+        self.master = MasterApproverAgent(gateway, settings)
         self.researcher = ResearcherAgent(gateway, settings, retriever, vector_store, document_loader=loader)
         self.drafter = DrafterAgent(gateway, settings)
         self.verifier = VerifierAgent(gateway, settings, vector_store)
@@ -161,7 +161,7 @@ class ResearchOrchestrator:
         graph = StateGraph(ResearchState)
         graph.add_node("input_guard", self.input_guard_node)
         graph.add_node("planner", self.planner_node)
-        graph.add_node("lead", self.lead_node)
+        graph.add_node("master", self.master_node)
         graph.add_node("researcher", self.researcher_node)
         graph.add_node("drafter", self.drafter_node)
         graph.add_node("verifier", self.verifier_node)
@@ -169,13 +169,13 @@ class ResearchOrchestrator:
         graph.add_node("output_guard", self.output_guard_node)
         graph.add_edge(START, "input_guard")
         graph.add_conditional_edges("input_guard", route_after_guard, {"planner": "planner", "__end__": END})
-        graph.add_edge("planner", "lead")
+        graph.add_edge("planner", "master")
         graph.add_conditional_edges(
-            "lead", route_lead, {"planner": "planner", "researcher": "researcher", "synthesizer": "synthesizer"}
+            "master", route_master, {"planner": "planner", "researcher": "researcher", "synthesizer": "synthesizer"}
         )
         graph.add_edge("researcher", "drafter")
         graph.add_edge("drafter", "verifier")
-        graph.add_edge("verifier", "lead")
+        graph.add_edge("verifier", "master")
         graph.add_edge("synthesizer", "output_guard")
         graph.add_edge("output_guard", END)
         return graph.compile()
@@ -202,9 +202,9 @@ class ResearchOrchestrator:
 
     @staticmethod
     def _instructions_for(state: ResearchState, agent: str) -> dict[str, list[str]]:
-        """The Team Lead's instructions for one agent, keyed by sub-question id."""
+        """The Master Approver's instructions for one agent, keyed by sub-question id."""
         out: dict[str, list[str]] = {}
-        for item in state.get("lead_instructions", []):
+        for item in state.get("master_instructions", []):
             if item.agent == agent:
                 out.setdefault(item.sub_question_id, []).append(item.instruction)
         return out
@@ -301,7 +301,7 @@ class ResearchOrchestrator:
                 state["run_id"], state["query"], document_titles=titles, collector=col
             )
         else:
-            col.emit(AuditEventType.NODE_STARTED, f"Planner revising the plan after the Team Lead's review (round {plan_round})")
+            col.emit(AuditEventType.NODE_STARTED, f"Planner revising the plan after the Master Approver's review (round {plan_round})")
             sub_questions, strategy, notes = self.planner.revise(
                 state["run_id"], state["query"], current=state["sub_questions"],
                 strategy=state.get("research_strategy", ""), review=review, collector=col,
@@ -320,17 +320,17 @@ class ResearchOrchestrator:
             "audit_log": col.events,
         }
 
-    def lead_node(self, state: ResearchState) -> dict[str, Any]:
-        """The Team Lead: reviews the plan until approved, then reviews every evidence round."""
+    def master_node(self, state: ResearchState) -> dict[str, Any]:
+        """The Master Approver: reviews the plan until approved, then reviews every evidence round."""
         if not state.get("plan_approved"):
-            return self._lead_plan_review(state)
-        return self._lead_round_review(state)
+            return self._master_plan_review(state)
+        return self._master_round_review(state)
 
-    def _lead_plan_review(self, state: ResearchState) -> dict[str, Any]:
+    def _master_plan_review(self, state: ResearchState) -> dict[str, Any]:
         plan_round = state.get("plan_round", 1)
-        col = self._collector(state, "lead", plan_round)
-        col.emit(AuditEventType.NODE_STARTED, f"Team Lead reviewing plan version {plan_round}", mode="plan")
-        review = self.lead.review_plan(
+        col = self._collector(state, "master", plan_round)
+        col.emit(AuditEventType.NODE_STARTED, f"Master Approver reviewing plan version {plan_round}", mode="plan")
+        review = self.master.review_plan(
             state["run_id"], state["query"], sub_questions=state["sub_questions"],
             strategy=state.get("research_strategy", ""), plan_round=plan_round,
             previous=state.get("plan_review"), collector=col,
@@ -338,16 +338,16 @@ class ResearchOrchestrator:
         approved = review.passed or review.forced
         message = self._post(col, chat.plan_verdict(state["run_id"], review))
         outcome = "plan approved, group dispatched" if approved else "revision requested"
-        col.emit(AuditEventType.NODE_COMPLETED, f"Team Lead finished plan review {plan_round}: {outcome}", mode="plan")
+        col.emit(AuditEventType.NODE_COMPLETED, f"Master Approver finished plan review {plan_round}: {outcome}", mode="plan")
         return {
             "plan_review": review, "plan_reviews": [review], "plan_approved": approved,
-            "lead_decision": "dispatch" if approved else "revise", "group_chat": [message], "audit_log": col.events,
+            "master_decision": "dispatch" if approved else "revise", "group_chat": [message], "audit_log": col.events,
         }
 
-    def _lead_round_review(self, state: ResearchState) -> dict[str, Any]:
+    def _master_round_review(self, state: ResearchState) -> dict[str, Any]:
         iteration = state["iteration_count"]
-        col = self._collector(state, "lead", iteration)
-        col.emit(AuditEventType.NODE_STARTED, f"Team Lead reviewing round {iteration}", mode="round")
+        col = self._collector(state, "master", iteration)
+        col.emit(AuditEventType.NODE_STARTED, f"Master Approver reviewing round {iteration}", mode="round")
         metrics = state["iteration_metrics"][-1]
         floor = self._route(state)
         budget = self.gateway.budget_status(state["run_id"])
@@ -363,7 +363,7 @@ class ResearchOrchestrator:
             metrics.coverage_score >= self.settings.coverage_threshold
             and metrics.grounding_rate >= self.settings.grounding_threshold
         )
-        review = self.lead.review_round(
+        review = self.master.review_round(
             state["run_id"], state["query"], sub_questions=state["sub_questions"], metrics=metrics,
             gaps=state.get("verification_gaps", []), contradictions=state.get("contradictions", []),
             floor=floor, gate_passed=gate_passed,
@@ -374,9 +374,9 @@ class ResearchOrchestrator:
         route = "researcher" if review.decision == "another_round" else "synthesizer"
         col.emit(
             AuditEventType.ROUTE_DECISION,
-            f"Team Lead -> {route} ({review.reason})",
+            f"Master Approver -> {route} ({review.reason})",
             route=route,
-            decided_by="lead",
+            decided_by="master",
             reason=review.reason,
             coverage_score=metrics.coverage_score,
             grounding_rate=metrics.grounding_rate,
@@ -396,13 +396,13 @@ class ResearchOrchestrator:
         message = self._post(col, chat.round_decision(
             state["run_id"], review, max_iterations=state.get("max_iterations", 1)
         ))
-        col.emit(AuditEventType.NODE_COMPLETED, f"Team Lead finished round {iteration} review: {review.decision.replace('_', ' ')}", mode="round")
+        col.emit(AuditEventType.NODE_COMPLETED, f"Master Approver finished round {iteration} review: {review.decision.replace('_', ' ')}", mode="round")
         return {
-            "lead_decision": review.decision,
+            "master_decision": review.decision,
             "round_reviews": [review],
             "route": route,
             "target_sub_question_ids": review.target_sub_question_ids,
-            "lead_instructions": review.instructions,
+            "master_instructions": review.instructions,
             "budget_exhausted": budget_exhausted,
             "group_chat": [message],
             "audit_log": col.events,
@@ -441,7 +441,7 @@ class ResearchOrchestrator:
             state["run_id"], iteration=iteration, targets=targets, new_sources=result.sources,
             total_sources=total_sources, refinements=result.refinement_queries,
             shielded=sum(e.event_type is AuditEventType.GUARDRAIL_FINDING for e in col.events),
-            instructions=state.get("lead_instructions", []) if iteration > 1 else [],
+            instructions=state.get("master_instructions", []) if iteration > 1 else [],
         ))
         col.emit(
             AuditEventType.NODE_COMPLETED,
@@ -485,7 +485,7 @@ class ResearchOrchestrator:
         drafts = self.drafter._parallel(draft, targets)
         message = self._post(col, chat.drafts_handoff(
             state["run_id"], iteration=iteration, drafts=drafts, gaps=state.get("verification_gaps", []),
-            instructions=state.get("lead_instructions", []) if iteration > 1 else [],
+            instructions=state.get("master_instructions", []) if iteration > 1 else [],
         ))
         col.emit(AuditEventType.NODE_COMPLETED, f"Drafter produced {len(drafts)} section(s)")
         return {"drafts": {d.sub_question_id: d for d in drafts}, "group_chat": [message], "audit_log": col.events}
@@ -533,7 +533,7 @@ class ResearchOrchestrator:
         message = self._post(col, chat.verdicts_handoff(
             state["run_id"], metrics=metrics, gaps=gaps, contradictions=contradictions
         ))
-        col.emit(AuditEventType.NODE_COMPLETED, f"Verifier finished round {iteration}: report sent to the Team Lead")
+        col.emit(AuditEventType.NODE_COMPLETED, f"Verifier finished round {iteration}: report sent to the Master Approver")
         return {
             "claims": outcome.claims,
             "verifications": outcome.verifications,

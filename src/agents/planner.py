@@ -1,4 +1,4 @@
-"""Agent 1 — PlannerAgent: MECE decomposition of the research question, revised until the Team Lead signs off."""
+"""Agent 1 — PlannerAgent: MECE decomposition of the research question, revised until the Master Approver signs off."""
 
 from __future__ import annotations
 
@@ -28,10 +28,10 @@ sources (e.g. "IEA renewables 2023 solar additions", "RBI monetary policy framew
 Never answer the question yourself."""
 
 REVISION_PROMPT = """ROLE: planner.revise
-You are DeepDive's PLANNER agent. The TEAM LEAD (master agent) reviewed your research plan and sent it back.
+You are DeepDive's PLANNER agent. The MASTER APPROVER reviewed your research plan and sent it back.
 
 Revise the plan:
-- Fix every high- and medium-severity issue in the Team Lead's review; fix low-severity issues when that improves the plan.
+- Fix every high- and medium-severity issue in the Master Approver's review; fix low-severity issues when that improves the plan.
 - Keep sub-questions that drew no criticism, wording and all.
 - The revised plan must still follow the original rules: 3-5 mutually exclusive, collectively exhaustive,
   evidence-seeking, self-contained sub-questions, each with 1-3 concise search queries (3-10 words) naming
@@ -91,9 +91,9 @@ class PlannerAgent(BaseAgent):
         review: PlanReview,
         collector: EventCollector | None = None,
     ) -> tuple[list[SubQuestion], str, list[str]]:
-        """Rewrite the plan to address the Team Lead's review. Returns (sub_questions, strategy, notes)."""
+        """Rewrite the plan to address the Master Approver's review. Returns (sub_questions, strategy, notes)."""
         user_prompt = render_input(
-            "Revise your research plan so that it addresses the Team Lead's review.",
+            "Revise your research plan so that it addresses the Master Approver's review.",
             {
                 "research_question": query,
                 "today": datetime.now(UTC).date().isoformat(),
@@ -103,7 +103,7 @@ class PlannerAgent(BaseAgent):
                         {"id": sq.id, "question": sq.question, "search_queries": sq.search_queries} for sq in current
                     ],
                 },
-                "lead_review": {
+                "master_review": {
                     "score": review.score,
                     "required_score": review.threshold,
                     "summary": review.summary,

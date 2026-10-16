@@ -26,19 +26,19 @@ export const SCENARIOS = [
 ];
 
 const NAME_COLOR = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.color])), quality_gate: 'rgb(var(--gray))', orchestrator: 'rgb(var(--gray))', followup: 'rgb(var(--purple))', mesh: 'rgb(var(--purple))' };
-const NAME = { input_guard: 'Shield', output_guard: 'Publish', orchestrator: 'DeepDive', planner: 'Planner', lead: 'Team Lead', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', followup: 'Follow-up', quality_gate: 'Quality gate' };
-const TRACE_CARD = { guardian: 'input_guard', planner: 'planner', lead: 'lead', approver: 'lead', researcher: 'researcher', embedder: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer' };
-const ACTIVITY = { input_guard: 'is screening the question', planner: 'is drafting the plan', lead: 'is reviewing the team\'s work', researcher: 'is searching and indexing', drafter: 'is writing cited drafts', verifier: 'is checking every claim', synthesizer: 'is writing the report', output_guard: 'is reviewing before publication' };
-const AGAIN = { plan: 'Revise plan', lead_plan: 'Team Lead reviews the revision', research: 'Research again', draft: 'Draft again', verify: 'Verify again' };
+const NAME = { input_guard: 'Shield', output_guard: 'Publish', orchestrator: 'DeepDive', planner: 'Planner', master: 'Master Approver', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', followup: 'Follow-up', quality_gate: 'Quality gate' };
+const TRACE_CARD = { guardian: 'input_guard', planner: 'planner', master: 'master', approver: 'master', lead: 'master', researcher: 'researcher', embedder: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer' };
+const ACTIVITY = { input_guard: 'is screening the question', planner: 'is drafting the plan', master: 'is reviewing the team\'s work', researcher: 'is searching and indexing', drafter: 'is writing cited drafts', verifier: 'is checking every claim', synthesizer: 'is writing the report', output_guard: 'is reviewing before publication' };
+const AGAIN = { plan: 'Revise plan', master_plan: 'Master Approver reviews the revision', research: 'Research again', draft: 'Draft again', verify: 'Verify again' };
 
 const STAGE_INFO = {
   screen: { agent: 'input_guard', label: 'Screen the question', what: 'Before any agent sees the question, deterministic shields and the Guardian model check it for prompt injection, harmful intent, and personal data.' },
-  plan: { agent: 'planner', label: 'Plan', what: 'The Planner splits the question into non-overlapping sub-questions and writes targeted search queries for each one. If the Team Lead sends the plan back, the Planner revises it against each issue.' },
-  lead_plan: { agent: 'lead', label: 'Team Lead approves plan', what: 'The Team Lead, the master agent that coordinates every other agent, scores the plan on coverage, distinctness, searchability, premise testing and specificity, and runs deterministic checks. Below the bar, or with a blocking issue, the plan goes back to the Planner with concrete fixes. Once it passes, the Team Lead briefs the group.' },
-  research: { agent: 'researcher', label: 'Research', what: 'The Team Lead dispatches the evidence group chat: Researcher, Drafter and Verifier hand work to each other, round after round, until the Team Lead approves it. Searches run in parallel, and every page is scored for authority, cleaned of injected instructions and indexed with exact character spans.' },
+  plan: { agent: 'planner', label: 'Plan', what: 'The Planner splits the question into non-overlapping sub-questions and writes targeted search queries for each one. If the Master Approver sends the plan back, the Planner revises it against each issue.' },
+  master_plan: { agent: 'master', label: 'Master Approver reviews plan', what: 'The Master Approver, which coordinates and approves the whole team, scores the plan on coverage, distinctness, searchability, premise testing and specificity, and runs deterministic checks. Below the bar, or with a blocking issue, the plan goes back to the Planner with concrete fixes. Once it passes, the Master Approver briefs the group.' },
+  research: { agent: 'researcher', label: 'Research', what: 'The Master Approver opens the group chat: the Researcher, Drafter and Verifier work together, handing work to each other round after round until the Master Approver approves it. Searches run in parallel, and every page is scored for authority, cleaned of injected instructions and indexed with exact character spans.' },
   draft: { agent: 'drafter', label: 'Draft', what: 'The Drafter writes an answer for each sub-question using only the evidence, and cites every factual sentence with [SRC-XXX].' },
-  verify: { agent: 'verifier', label: 'Verify', what: 'Every sentence is split into atomic claims, and each claim is checked against the exact text of its cited source. The quote has to exist verbatim, and any figures have to match. The Verifier then reports the round to the Team Lead.' },
-  lead_review: { agent: 'lead', label: 'Team Lead reviews round', what: 'The Team Lead reads the Verifier\'s round report against the quality gate. Below the bar it must send the group back, with an instruction for the Researcher and the Drafter on each weak sub-question. Once the evidence clears the bar it approves the work for the Synthesizer.' },
+  verify: { agent: 'verifier', label: 'Verify', what: 'Every sentence is split into atomic claims, and each claim is checked against the exact text of its cited source. The quote has to exist verbatim, and any figures have to match. The Verifier then reports the round to the Master Approver.' },
+  master_review: { agent: 'master', label: 'Master Approver reviews round', what: 'The Master Approver reads the Verifier\'s round report against the quality gate. Below the bar it must send the group back, with an instruction for the Researcher and the Drafter on each weak sub-question. Once the evidence clears the bar it approves the work for the Synthesizer.' },
   report: { agent: 'synthesizer', label: 'Write report', what: 'The Synthesizer writes the report from verified claims only. Unsupported claims are removed, and contradictions are shown openly.' },
   publish: { agent: 'output_guard', label: 'Publish', what: 'The output shield redacts personal data and secrets, attaches the governance summary, and seals the hash-chained audit trail.' },
 };
@@ -62,7 +62,7 @@ function model(k) {
     status: 'idle', query: '', blocked: null, t0: D.items.length ? ts(D.items[0]) : 0, now: 0,
     stages: [], agents: {}, loops: 0, active: null,
     screen: { status: null, llm: null, findings: [] },
-    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], leadMode: null,
+    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], masterMode: null,
     research: {}, drafts: {}, verify: {},
     report: { removed: [], compiled: null }, publish: null,
     mesh: { calls: 0, tokens: 0, ms: 0, byModel: {}, byAgent: {} },
@@ -88,15 +88,15 @@ function model(k) {
     switch (it.event_type) {
       case 'run_started': M.status = 'running'; M.query = p.query || ''; break;
       case 'node_started': {
-        const node = it.node === 'approver' ? 'lead' : it.node; // runs recorded before the Team Lead
+        const node = ['approver', 'lead'].includes(it.node) ? 'master' : it.node; // runs recorded under earlier names
         M.agents[node] = 'active'; M.active = node;
-        if (node === 'lead') M.leadMode = p.mode === 'round' ? 'round' : 'plan';
-        const key = node === 'lead' ? (M.leadMode === 'round' ? 'lead_review' : 'lead_plan')
+        if (node === 'master') M.masterMode = p.mode === 'round' ? 'round' : 'plan';
+        const key = node === 'master' ? (M.masterMode === 'round' ? 'master_review' : 'master_plan')
           : { input_guard: 'screen', planner: 'plan', researcher: 'research', drafter: 'draft', verifier: 'verify', synthesizer: 'report', output_guard: 'publish' }[node];
-        if (key) stage(key, ['plan', 'lead_plan', 'research', 'draft', 'verify', 'lead_review'].includes(key) ? i : 1);
+        if (key) stage(key, ['plan', 'master_plan', 'research', 'draft', 'verify', 'master_review'].includes(key) ? i : 1);
         break;
       }
-      case 'node_completed': { const node = it.node === 'approver' ? 'lead' : it.node; if (M.agents[node] !== 'blocked') M.agents[node] = 'done'; if (M.active === node) M.active = null; break; }
+      case 'node_completed': { const node = ['approver', 'lead'].includes(it.node) ? 'master' : it.node; if (M.agents[node] !== 'blocked') M.agents[node] = 'done'; if (M.active === node) M.active = null; break; }
       case 'guardrail_check': if (p.stage === 'input') { M.screen.status = p.status; M.screen.llm = p.llm_screen; } else M.publish = { ...(M.publish || {}), ...p }; break;
       case 'guardrail_finding': {
         if (it.node === 'input_guard') M.screen.findings.push(p);
@@ -112,8 +112,8 @@ function model(k) {
         M.plan.subq = M.plan.rounds[r].subq; M.plan.strategy = M.plan.rounds[r].strategy; stage('plan', r).count = M.plan.subq.length;
         break;
       }
-      case 'plan_reviewed': M.reviews.push(p); stage('lead_plan', p.round || 1).count = Number(p.score || 0).toFixed(2); break;
-      case 'round_reviewed': M.rounds.push(p); stage('lead_review', p.round || 1).count = p.decision === 'approve' ? '✓' : '↺'; break;
+      case 'plan_reviewed': M.reviews.push(p); stage('master_plan', p.round || 1).count = Number(p.score || 0).toFixed(2); break;
+      case 'round_reviewed': M.rounds.push(p); stage('master_review', p.round || 1).count = p.decision === 'approve' ? '✓' : '↺'; break;
       case 'agent_message': M.chat.push({ ...p, t: ts(it) - M.t0 }); break;
       case 'refinement_planned': (M.research[i] ||= blankResearch()).refinements = p.queries || []; break;
       case 'search_executed': (M.research[i] ||= blankResearch()).searches.push(p); break;
@@ -223,13 +223,13 @@ function gate(state, rows, status) {
   }).join('')}</div><span class="pgate-s">${status}</span></div>`;
 }
 
-function leadState(M) {
-  const st = M.agents.lead || (M.status === 'blocked' ? 'skipped' : 'idle');
+function masterState(M) {
+  const st = M.agents.master || (M.status === 'blocked' ? 'skipped' : 'idle');
   const lastPlan = M.reviews[M.reviews.length - 1];
   const lastRound = M.rounds[M.rounds.length - 1];
   let status = 'waiting for the Planner';
   if (M.status === 'blocked') status = 'not reached: the shield blocked the question';
-  else if (st === 'active') status = M.leadMode === 'round' ? `reviewing round ${researchRounds(M)} report` : `reviewing plan v${Math.max(1, Object.keys(M.plan.rounds).length)}`;
+  else if (st === 'active') status = M.masterMode === 'round' ? `reviewing round ${researchRounds(M)} report` : `reviewing plan v${Math.max(1, Object.keys(M.plan.rounds).length)}`;
   else if (lastRound) status = lastRound.decision === 'approve' ? (lastRound.gate_passed ? 'approved the work for synthesis' : 'approved, gaps disclosed') : `ordered ${lastRound.extra_round ? 'an extra pass' : 'another round'} on ${(lastRound.target_sub_question_ids || []).join(', ')}`;
   else if (lastPlan) status = lastPlan.passed || lastPlan.forced ? 'plan approved · group dispatched' : `sent plan v${lastPlan.round} back`;
   return { st, status, lastPlan, lastRound, approved: lastRound?.decision === 'approve' };
@@ -238,7 +238,7 @@ function leadState(M) {
 function renderPipeline(M) {
   const cfg = store.health?.config || {};
   const planT = cfg.plan_approval_threshold ?? 0.8;
-  const L = leadState(M);
+  const L = masterState(M);
   const planGate = L.lastPlan
     ? gate(L.lastPlan.passed ? 'pass' : 'fail', [{ label: 'score', text: Number(L.lastPlan.score).toFixed(2), value: L.lastPlan.score, goal: L.lastPlan.threshold, target: Number(L.lastPlan.threshold).toFixed(2) }],
       L.lastPlan.passed ? '✓ approved' : L.lastPlan.forced ? '! open issues' : '✗ revise')
@@ -250,27 +250,28 @@ function renderPipeline(M) {
     { label: 'grounding', text: m ? pct(m.grounding_rate) : '—', value: m ? m.grounding_rate : null, goal: gT, target: pct(gT) },
     { label: 'coverage', text: m ? pct(m.coverage_score) : '—', value: m ? m.coverage_score : null, goal: cT, target: pct(cT) },
   ], !m ? `≥ ${pct(gT)} · ${pct(cT)}` : met ? '✓ met' : '✗ below');
-  const lead = AGENT.lead; const use = M.mesh.byAgent.lead;
+  const master = AGENT.master; const use = M.mesh.byAgent.master;
   const rounds = researchRounds(M);
   const groupActive = ['researcher', 'drafter', 'verifier'].some((id) => M.agents[id] === 'active');
+  const groupMsgs = M.chat.filter((m) => m.channel === 'evidence_loop').length;
   $('#dPipeline').innerHTML = `
     <svg class="pwires" id="dWires" aria-hidden="true"></svg><div class="pwire-labels" id="dWireLabels"></div>
-    <div class="plead" id="pLead" data-state="${L.st}" style="--c:${lead.color}">
-      <div class="plead-main">
-        <div class="pcard-icon">${svgIcon(lead.icon)}</div>
+    <div class="pmaster" id="pMaster" data-state="${L.st}" style="--c:${master.color}">
+      <div class="pmaster-main">
+        <div class="pcard-icon">${svgIcon(master.icon)}</div>
         <div class="min-w-0 flex-1">
-          <div class="plead-title">Team Lead <span>master agent · coordinates every agent</span></div>
-          <div class="plead-status">${L.st === 'active' ? `<span class="typing" style="--c:${lead.color}"><i></i><i></i><i></i></span>` : L.approved ? '<span class="text-emerald-400">✓</span>' : ''}<span>${esc(L.status)}</span></div>
-          <div class="plead-mesh">${use && (use.calls || use.tokens) ? `${use.calls} call${use.calls === 1 ? '' : 's'} · ${compact(use.tokens)} tok` : 'plan gate · round gate · per-agent instructions'}</div>
+          <div class="pmaster-title">Master Approver <span>approves the plan and every group-chat round</span></div>
+          <div class="pmaster-status">${L.st === 'active' ? `<span class="typing" style="--c:${master.color}"><i></i><i></i><i></i></span>` : L.approved ? '<span class="text-emerald-400">✓</span>' : ''}<span>${esc(L.status)}</span></div>
+          <div class="pmaster-mesh">${use && (use.calls || use.tokens) ? `${use.calls} call${use.calls === 1 ? '' : 's'} · ${compact(use.tokens)} tok` : 'plan gate · round gate · per-agent instructions'}</div>
         </div>
       </div>
-      <div class="plead-gates"><div class="plead-gk">Plan gate</div>${planGate}<div class="plead-gk">Round gate</div>${roundGate}</div>
+      <div class="pmaster-gates"><div class="pmaster-gk">Plan gate</div>${planGate}<div class="pmaster-gk">Round gate</div>${roundGate}</div>
     </div>
     ${pcard(M, 'input_guard', 'p3-solo p3-c1')}
     ${pcard(M, 'planner', 'p3-solo p3-c3')}
     <div class="pgroup" id="pGroup" data-active="${groupActive}">
       <div class="pzone-cards" style="--n:3">${pcard(M, 'researcher')}${pcard(M, 'drafter')}${pcard(M, 'verifier')}</div>
-      <div class="pgroup-f"><span>Evidence group chat</span><span class="pzone-sub">until the Team Lead approves</span>${rounds ? `<span class="pzone-round">round ${rounds}</span>` : ''}</div>
+      <div class="pgroup-f">${svgIcon('chat')}<span>Group chat</span><span class="pzone-sub">Researcher + Drafter + Verifier work together${groupMsgs ? ` · ${groupMsgs} messages` : ''}</span>${rounds ? `<span class="pzone-round">round ${rounds}</span>` : ''}</div>
     </div>
     ${pcard(M, 'synthesizer', 'p3-solo p3-c7')}
     ${pcard(M, 'output_guard', 'p3-solo p3-c9')}`;
@@ -289,7 +290,7 @@ function drawWires(M) {
     const b = el.getBoundingClientRect();
     return { l: b.left - R.left, t: b.top - R.top, r: b.right - R.left, b: b.bottom - R.top, w: b.width, h: b.height, cx: b.left - R.left + b.width / 2, cy: b.top - R.top + b.height / 2 };
   };
-  const S = box('pc-input_guard'); const P = box('pc-planner'); const L = box('pLead');
+  const S = box('pc-input_guard'); const P = box('pc-planner'); const L = box('pMaster');
   const RE = box('pc-researcher'); const DR = box('pc-drafter'); const VE = box('pc-verifier'); const SY = box('pc-synthesizer'); const PU = box('pc-output_guard');
   if (!S || !P || !L || !RE || !SY || !PU) return;
   const paths = []; const labels = [];
@@ -300,7 +301,7 @@ function drawWires(M) {
   const st = (id) => M.agents[id];
   const flow = (id) => (st(id) === 'active' ? 'live' : st(id) ? 'on' : 'off');
   const k = 10; // corner radius
-  const L1 = box('pLead');
+  const L1 = box('pMaster');
   const sent = M.reviews.filter((r) => !r.passed && !r.forced).length;
   const versions = Math.max(1, Object.keys(M.plan.rounds).length);
   const approved = M.rounds.length && M.rounds[M.rounds.length - 1].decision === 'approve';
@@ -308,7 +309,7 @@ function drawWires(M) {
 
   wire(`M${S.r},${S.cy} L${P.l - 2},${P.cy}`, st('planner') ? 'on' : 'off');
   const px = P.cx - 16; const y1 = L1.t + L1.h * 0.32;
-  wire(`M${px},${P.t} L${px},${y1 + k} Q${px},${y1} ${px + k},${y1} L${L1.l - 2},${y1}`, st('lead') ? (st('planner') === 'active' ? 'live' : 'on') : 'off', `plan v${versions}`, (px + L1.l) / 2, y1);
+  wire(`M${px},${P.t} L${px},${y1 + k} Q${px},${y1} ${px + k},${y1} L${L1.l - 2},${y1}`, st('master') ? (st('planner') === 'active' ? 'live' : 'on') : 'off', `plan v${versions}`, (px + L1.l) / 2, y1);
   const px2 = P.cx + 16; const y2 = L1.t + L1.h * 0.7;
   wire(`M${L1.l},${y2} L${px2 + k},${y2} Q${px2},${y2} ${px2},${y2 + k} L${px2},${P.t - 2}`, sent ? 'loop' : 'off', sent ? `revise ×${sent}` : 'revise', (px2 + L1.l) / 2, y2);
   const down = (C, kind, label) => wire(`M${C.cx},${L1.b} L${C.cx},${C.t - 2}`, kind, label, C.cx + 8, (L1.b + C.t) / 2, true);
@@ -333,7 +334,7 @@ function renderChat(M) {
   const nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 60;
   if (!shown.length) {
     list.innerHTML = `<div class="cempty">${!D.runId || D.shown < 0
-      ? 'The agents post their hand-offs here as they work: the plan and the Team Lead\'s review, then evidence, drafts, the Verifier\'s round reports and every Team Lead decision.'
+      ? 'The agents post their hand-offs here as they work: the plan and the Master Approver\'s review, then evidence, drafts, the Verifier\'s round reports and every Master Approver decision.'
       : M.status !== 'running' && !M.chat.length && D.shown >= D.items.length - 1 ? 'This recorded run predates the agent group chat. Run it again live to watch the agents talk.' : 'Waiting for the first hand-off…'}</div>`;
     D.chatCount = 0;
   } else {
@@ -360,13 +361,13 @@ function setSide(side) {
 }
 
 function renderStages(M) {
-  const base = ['screen', 'plan', 'lead_plan', 'research', 'draft', 'verify', 'lead_review', 'report', 'publish'];
+  const base = ['screen', 'plan', 'master_plan', 'research', 'draft', 'verify', 'master_review', 'report', 'publish'];
   const shown = [...M.stages];
   for (const key of base) if (!shown.some((s) => s.key === key)) shown.push({ key, iteration: 1, status: M.status === 'blocked' ? 'skipped' : 'pending', count: 0 });
   const order = (s) => {
     if (s.key === 'plan') return 1 + (s.iteration - 1) * 2;
-    if (s.key === 'lead_plan') return 2 + (s.iteration - 1) * 2;
-    const loopIdx = { research: 0, draft: 1, verify: 2, lead_review: 3 };
+    if (s.key === 'master_plan') return 2 + (s.iteration - 1) * 2;
+    const loopIdx = { research: 0, draft: 1, verify: 2, master_review: 3 };
     if (s.key in loopIdx) return 20 + (s.iteration - 1) * 4 + loopIdx[s.key];
     return { screen: 0, report: 100, publish: 101 }[s.key];
   };
@@ -374,10 +375,10 @@ function renderStages(M) {
   D.stageList = shown;
   const current = currentStage(M);
   $('#dStages').innerHTML = shown.map((s, idx) => {
-    const label = s.key === 'lead_review' ? `Team Lead reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
+    const label = s.key === 'master_review' ? `Master Approver reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
     const icon = { done: '✓', active: '●', blocked: '✕', skipped: '–', pending: '' }[s.status] ?? '';
     const sel = current && current.key === s.key && current.iteration === s.iteration;
-    return `<button class="dstage ${sel ? 'selected' : ''}" data-state="${s.status}" data-stage="${s.key}:${s.iteration}"><span class="dstage-icon">${icon}</span><span class="flex-1 text-left">${esc(label)}${s.iteration > 1 ? (['plan', 'lead_plan'].includes(s.key) ? '<span class="ml-1.5 text-[10px]" style="color:rgb(var(--indigo-t))">revision</span>' : s.key === 'lead_review' ? '' : '<span class="ml-1.5 text-[10px] text-amber-300">loop</span>') : ''}</span><span class="dstage-n">${s.count || idx + 1}</span></button>`;
+    return `<button class="dstage ${sel ? 'selected' : ''}" data-state="${s.status}" data-stage="${s.key}:${s.iteration}"><span class="dstage-icon">${icon}</span><span class="flex-1 text-left">${esc(label)}${s.iteration > 1 ? (['plan', 'master_plan'].includes(s.key) ? '<span class="ml-1.5 text-[10px]" style="color:rgb(var(--indigo-t))">revision</span>' : s.key === 'master_review' ? '' : '<span class="ml-1.5 text-[10px] text-amber-300">loop</span>') : ''}</span><span class="dstage-n">${s.count || idx + 1}</span></button>`;
   }).join('');
 }
 
@@ -411,7 +412,7 @@ function renderPanel(M) {
   if (!st) { el.innerHTML = '<div class="dempty"><h2>Starting run…</h2></div>'; return; }
   const info = STAGE_INFO[st.key];
   const idx = (D.stageList || []).findIndex((s) => s.key === st.key && s.iteration === st.iteration) + 1;
-  const head = `<div class="dpanel-head"><span class="dpanel-kicker">Stage ${idx} · ${esc(st.key === 'lead_review' ? `Team Lead reviews round ${st.iteration}` : st.iteration > 1 ? (AGAIN[st.key] || info.label) : info.label)}</span><span class="kind-pill" style="--c:${AGENT[info.agent].color}">${esc(AGENT[info.agent].label)}</span></div><p class="dpanel-what">${esc(info.what)}</p>`;
+  const head = `<div class="dpanel-head"><span class="dpanel-kicker">Stage ${idx} · ${esc(st.key === 'master_review' ? `Master Approver reviews round ${st.iteration}` : st.iteration > 1 ? (AGAIN[st.key] || info.label) : info.label)}</span><span class="kind-pill" style="--c:${AGENT[info.agent].color}">${esc(AGENT[info.agent].label)}</span></div><p class="dpanel-what">${esc(info.what)}</p>`;
   el.innerHTML = head + (STAGE_RENDER[st.key](M, st.iteration) || '');
 }
 
@@ -431,22 +432,22 @@ const STAGE_RENDER = {
   },
   plan(M, i) {
     const r = M.plan.rounds[i] || (i === 1 && M.plan.subq.length ? { subq: M.plan.subq, strategy: M.plan.strategy, notes: [] } : null);
-    if (!r || !r.subq.length) return `<div class="dwait">${i > 1 ? 'Revising the plan against the Team Lead\'s issues…' : 'Planning…'}</div>`;
+    if (!r || !r.subq.length) return `<div class="dwait">${i > 1 ? 'Revising the plan against the Master Approver\'s issues…' : 'Planning…'}</div>`;
     const prev = M.plan.rounds[i - 1];
     const before = new Set((prev?.subq || []).map((q) => q.question));
-    return `${r.notes.length ? `<div class="dsection"><div class="dsub" style="color:rgb(var(--indigo-t))">Changes after the Team Lead's review</div><ul class="space-y-1 text-[13px] text-slate-200">${r.notes.map((n) => `<li class="flex gap-2"><span class="mt-2 h-1 w-1 shrink-0 rounded-full" style="background:rgb(var(--indigo))"></span><span>${esc(n)}</span></li>`).join('')}</ul></div>` : ''}
+    return `${r.notes.length ? `<div class="dsection"><div class="dsub" style="color:rgb(var(--indigo-t))">Changes after the Master Approver's review</div><ul class="space-y-1 text-[13px] text-slate-200">${r.notes.map((n) => `<li class="flex gap-2"><span class="mt-2 h-1 w-1 shrink-0 rounded-full" style="background:rgb(var(--indigo))"></span><span>${esc(n)}</span></li>`).join('')}</ul></div>` : ''}
       ${r.strategy ? `<p class="mb-3 text-[13px] text-slate-400">${esc(r.strategy)}</p>` : ''}<div class="grid gap-2 md:grid-cols-2">${r.subq.map((q) => { const added = prev && !before.has(q.question); return `<div class="dsq fade-in ${added ? 'added' : ''}"><div class="flex items-center gap-2 font-mono text-[10.5px] text-violet-300">${esc(q.id)}${added ? '<span class="font-sans text-[10.5px] font-semibold text-emerald-300">new in this version</span>' : ''}</div><div class="mt-1 text-[13.5px] text-slate-100">${esc(q.question)}</div>
       <div class="mt-2 flex flex-wrap gap-1">${(q.search_queries || []).map((s) => `<span class="dquery">${esc(s)}</span>`).join('')}</div></div>`; }).join('')}</div>`;
   },
-  lead_plan(M, i) {
+  master_plan(M, i) {
     const r = M.reviews.find((x) => (x.round || 1) === i);
-    if (!r) return '<div class="dwait">The Team Lead is scoring the plan…</div>';
+    if (!r) return '<div class="dwait">The Master Approver is scoring the plan…</div>';
     const LABELS = { coverage: 'Coverage', distinctness: 'Distinct sub-questions', searchability: 'Searchable queries', premise_check: 'Premise tested', specificity: 'Specificity' };
     const rubric = Object.entries(r.rubric || {});
     const issues = r.issues || [];
-    const decision = r.passed ? '<b>Approved.</b> The plan clears the bar, so the Team Lead briefs the group and retrieval starts.' : r.forced ? '<b>Revision budget spent.</b> Retrieval starts, with the open issues on record.' : '<b>Sent back.</b> The Planner revises the plan against these issues.';
+    const decision = r.passed ? '<b>Approved.</b> The plan clears the bar, so the Master Approver briefs the group and retrieval starts.' : r.forced ? '<b>Revision budget spent.</b> Retrieval starts, with the open issues on record.' : '<b>Sent back.</b> The Planner revises the plan against these issues.';
     return `<div class="grid gap-4 lg:grid-cols-[1fr_250px]"><div>
-      ${rubric.length ? `<div class="dsub">Rubric · Team Lead via Mesh</div>${rubric.map(([k, v]) => `<div class="rubric-row"><span>${esc(LABELS[k] || k)}</span>${bar(v, undefined, 'rgb(var(--indigo))')}<b>${Number(v).toFixed(2)}</b></div>`).join('')}` : '<div class="dwait">The Team Lead model was unavailable, so only the deterministic checks ran.</div>'}
+      ${rubric.length ? `<div class="dsub">Rubric · Master Approver via Mesh</div>${rubric.map(([k, v]) => `<div class="rubric-row"><span>${esc(LABELS[k] || k)}</span>${bar(v, undefined, 'rgb(var(--indigo))')}<b>${Number(v).toFixed(2)}</b></div>`).join('')}` : '<div class="dwait">The Master Approver model was unavailable, so only the deterministic checks ran.</div>'}
       <div class="dsub mt-4">${issues.length} issue${issues.length === 1 ? '' : 's'} raised</div>
       ${issues.map((x) => `<div class="dissue fade-in"><div class="flex flex-wrap items-center gap-1.5"><span class="sev sev-${esc(x.severity)}">${esc(x.severity)}</span>${x.target === 'plan' ? '<span class="text-[11px] text-slate-500">whole plan</span>' : `<span class="sqref">${esc(x.target)}</span>`}${x.blocking ? '<span class="text-[10.5px] font-semibold text-rose-300">· blocking</span>' : x.severity === 'high' ? '<span class="text-[10.5px] text-slate-500">· advisory (rubric does not corroborate it)</span>' : ''}${x.origin === 'check' ? '<span class="text-[10.5px] text-slate-500">· deterministic check</span>' : ''}</div><div class="mt-1 text-slate-200">${esc(x.problem)}</div>${x.fix ? `<div class="mt-1 text-[12px] text-slate-400">Fix: ${esc(x.fix)}</div>` : ''}</div>`).join('') || '<div class="text-[13px] text-slate-500">No issues raised.</div>'}
     </div><div class="space-y-3">
@@ -454,28 +455,28 @@ const STAGE_RENDER = {
       <div class="droute ${r.passed ? '' : 'loop'}">${decision}</div>
       <p class="text-[12px] leading-relaxed text-slate-500">Score = mean of the rubric, minus penalties from the deterministic checks (dropped entities, overlapping sub-questions, malformed queries). A high-severity issue from the model blocks only when its own rubric agrees (a criterion below 0.70); deterministic high issues always block.</p></div></div>`;
   },
-  lead_review(M, i) {
+  master_review(M, i) {
     const r = M.rounds.find((x) => (x.round || 1) === i);
-    if (!r) return '<div class="dwait">The Team Lead is reading the Verifier\'s round report…</div>';
+    if (!r) return '<div class="dwait">The Master Approver is reading the Verifier\'s round report…</div>';
     const decision = r.decision === 'another_round'
-      ? (r.extra_round ? '<b>One more targeted pass.</b> The bar is met, but the Team Lead sends the weakest sub-questions back once.' : '<b>Another round.</b> The evidence is below the quality bar, so the group goes again.')
+      ? (r.extra_round ? '<b>One more targeted pass.</b> The bar is met, but the Master Approver sends the weakest sub-questions back once.' : '<b>Another round.</b> The evidence is below the quality bar, so the group goes again.')
       : r.gate_passed ? '<b>Approved for synthesis.</b> The verified claims go to the Synthesizer.' : `<b>Approved with gaps disclosed.</b> ${esc(r.reason)}.`;
     const ins = (r.instructions || []);
     const group = (agent, label) => {
       const rows = ins.filter((x) => x.agent === agent);
-      return rows.length ? `<div class="dsub mt-3">${label}</div>${rows.map((x) => `<div class="dissue fade-in"><div class="flex flex-wrap items-center gap-1.5"><span class="sqref">${esc(x.sub_question_id)}</span>${x.origin === 'gate' ? '<span class="text-[10.5px] text-slate-500">from the Verifier\'s notes</span>' : '<span class="text-[10.5px]" style="color:rgb(var(--indigo-t))">Team Lead</span>'}</div><div class="mt-1 text-slate-200">${esc(x.instruction)}</div></div>`).join('')}` : '';
+      return rows.length ? `<div class="dsub mt-3">${label}</div>${rows.map((x) => `<div class="dissue fade-in"><div class="flex flex-wrap items-center gap-1.5"><span class="sqref">${esc(x.sub_question_id)}</span>${x.origin === 'gate' ? '<span class="text-[10.5px] text-slate-500">from the Verifier\'s notes</span>' : '<span class="text-[10.5px]" style="color:rgb(var(--indigo-t))">Master Approver</span>'}</div><div class="mt-1 text-slate-200">${esc(x.instruction)}</div></div>`).join('')}` : '';
     };
     return `<div class="grid gap-4 lg:grid-cols-[1fr_260px]"><div>
-      <div class="dsub">Team Lead's rationale ${r.llm_reviewed ? '· via Mesh' : '· deterministic gate'}</div>
-      <p class="lead-quote">${esc(r.rationale)}</p>
-      ${r.overruled ? '<div class="dfinding mt-2">The quality gate overruled the Team Lead\'s approval: the bar is not met and rounds remain.</div>' : ''}
+      <div class="dsub">Master Approver's rationale ${r.llm_reviewed ? '· via Mesh' : '· deterministic gate'}</div>
+      <p class="master-quote">${esc(r.rationale)}</p>
+      ${r.overruled ? '<div class="dfinding mt-2">The quality gate overruled the Master Approver\'s approval: the bar is not met and rounds remain.</div>' : ''}
       ${group('researcher', 'Instructions to the Researcher')}${group('drafter', 'Instructions to the Drafter')}
       ${!ins.length && r.decision === 'approve' ? '<p class="mt-3 text-[13px] text-slate-400">No further instructions: the group\'s work is approved.</p>' : ''}
     </div><div class="space-y-3">
       <div class="dmeter"><div class="dsub">Grounding <b class="float-right text-slate-100">${pct(r.grounding_rate)}</b></div>${bar(r.grounding_rate, r.grounding_threshold, 'rgb(var(--green))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r.grounding_threshold)}</div></div>
       <div class="dmeter"><div class="dsub">Coverage <b class="float-right text-slate-100">${pct(r.coverage_score)}</b></div>${bar(r.coverage_score, r.coverage_threshold, 'rgb(var(--cyan))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r.coverage_threshold)}</div></div>
       <div class="droute ${r.decision === 'another_round' ? 'loop' : ''}">${decision}</div>
-      <p class="text-[12px] leading-relaxed text-slate-500">The quality gate is a floor the Team Lead cannot lower: below the bar, with rounds and budget left, the group must go again. Above it, the Team Lead approves or adds a bounded, targeted extra pass.</p></div></div>`;
+      <p class="text-[12px] leading-relaxed text-slate-500">The quality gate is a floor the Master Approver cannot lower: below the bar, with rounds and budget left, the group must go again. Above it, the Master Approver approves or adds a bounded, targeted extra pass.</p></div></div>`;
   },
   research(M, i) {
     const r = M.research[i] || blankResearch();
@@ -505,7 +506,7 @@ const STAGE_RENDER = {
         <div class="mt-0.5 text-[11px] text-slate-500">${x.evidence_source_id ? `<span class="chip" data-src="${esc(x.evidence_source_id)}">${esc(x.evidence_source_id)}</span> ` : ''}${x.quote_verified ? '<span class="text-emerald-400">verbatim quote located</span>' : 'no verbatim quote'} · conf ${Number(x.confidence || 0).toFixed(2)}${v.downgrades[x.claim_id] ? ` · <span class="text-amber-300">${esc(v.downgrades[x.claim_id])}</span>` : ''}</div></div></button>`).join('') || '<div class="dwait">Extracting atomic claims…</div>'}</div></div>
       <div class="space-y-3"><div class="dmeter"><div class="dsub">Grounding <b class="float-right text-slate-100">${m ? pct(m.grounding_rate) : '—'}</b></div>${bar(m?.grounding_rate, r?.grounding_threshold ?? 0.75, 'rgb(var(--green))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r?.grounding_threshold ?? 0.75)}</div></div>
         <div class="dmeter"><div class="dsub">Coverage <b class="float-right text-slate-100">${m ? pct(m.coverage_score) : '—'}</b></div>${bar(m?.coverage_score, r?.coverage_threshold ?? 0.7, 'rgb(var(--cyan))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r?.coverage_threshold ?? 0.7)}</div></div>
-        ${r ? `<div class="droute ${r.route === 'researcher' ? 'loop' : ''}">${r.route === 'researcher' ? `<b>Team Lead: another round</b> for ${esc((v.loop?.gaps || []).map((g) => g.sub_question_id).join(', ') || 'the weak sub-questions')}.` : v.budget ? '<b>Budget guard:</b> loop-back suppressed; the Team Lead approves what is verified.' : '<b>Team Lead: approved.</b> Moving on to the report.'}</div>` : m ? '<div class="droute">Round report sent to the Team Lead…</div>' : ''}
+        ${r ? `<div class="droute ${r.route === 'researcher' ? 'loop' : ''}">${r.route === 'researcher' ? `<b>Master Approver: another round</b> for ${esc((v.loop?.gaps || []).map((g) => g.sub_question_id).join(', ') || 'the weak sub-questions')}.` : v.budget ? '<b>Budget guard:</b> loop-back suppressed; the Master Approver approves what is verified.' : '<b>Master Approver: approved.</b> Moving on to the report.'}</div>` : m ? '<div class="droute">Round report sent to the Master Approver…</div>' : ''}
         ${v.contradictions.length ? `<div class="dsub text-rose-300">${v.contradictions.length} contradiction(s) found</div>${v.contradictions.map((c) => `<div class="dctr"><div class="text-[11.5px] text-slate-300">${esc(c.topic)}</div><div class="mt-1 text-[11px] text-indigo-300">${esc(c.resolution_hint)}</div></div>`).join('')}` : ''}</div></div>`;
   },
   report(M) {

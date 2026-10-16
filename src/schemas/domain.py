@@ -360,8 +360,13 @@ class PlanIssue(_Model):
     severity: Severity = Severity.MEDIUM
     problem: str = Field(min_length=3)
     fix: str = Field(default="", description="A concrete change the Planner can make.")
-    origin: Literal["lead", "check"] = "lead"  # Team Lead model review or deterministic plan check
-    blocking: bool = False  # set by the Team Lead: this issue alone keeps the plan from passing
+    origin: Literal["master", "check"] = "master"  # Master Approver model review or deterministic plan check
+    blocking: bool = False  # set by the Master Approver: this issue alone keeps the plan from passing
+
+    @field_validator("origin", mode="before")
+    @classmethod
+    def _legacy_origin(cls, value: Any) -> Any:
+        return "master" if value in ("lead", "approver") else value  # runs recorded under the earlier names
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -370,7 +375,7 @@ class PlanIssue(_Model):
 
 
 class PlanReview(_Model):
-    """The Team Lead's verdict on one version of the plan."""
+    """The Master Approver's verdict on one version of the plan."""
 
     round: int = Field(ge=1)
     score: float = Field(ge=0.0, le=1.0)
@@ -380,20 +385,25 @@ class PlanReview(_Model):
     rubric: dict[str, float] = Field(default_factory=dict)
     issues: list[PlanIssue] = Field(default_factory=list)
     summary: str = ""
-    llm_reviewed: bool = True  # False when the Team Lead model was unavailable and only the checks ran
+    llm_reviewed: bool = True  # False when the Master Approver model was unavailable and only the checks ran
 
 
 class AgentInstruction(_Model):
-    """A Team Lead instruction to one agent for the next evidence round."""
+    """A Master Approver instruction to one agent for the next evidence round."""
 
     agent: Literal["researcher", "drafter"]
     sub_question_id: str
     instruction: str
-    origin: Literal["lead", "gate"] = "lead"  # written by the Team Lead model, or derived from the Verifier's gap
+    origin: Literal["master", "gate"] = "master"  # written by the Master Approver model, or derived from the Verifier's gap
+
+    @field_validator("origin", mode="before")
+    @classmethod
+    def _legacy_origin(cls, value: Any) -> Any:
+        return "master" if value in ("lead", "approver") else value  # runs recorded under the earlier names
 
 
 class RoundReview(_Model):
-    """The Team Lead's decision after one evidence round (researcher -> drafter -> verifier)."""
+    """The Master Approver's decision after one evidence round (researcher -> drafter -> verifier)."""
 
     round: int = Field(ge=1)
     decision: Literal["approve", "another_round"]
@@ -407,8 +417,8 @@ class RoundReview(_Model):
     coverage_score: float = 0.0
     grounding_threshold: float = 0.0
     coverage_threshold: float = 0.0
-    extra_round: bool = False  # the gate passed but the Team Lead asked for one more targeted pass
-    overruled: bool = False  # the Team Lead wanted to approve below the bar; the gate kept the loop going
+    extra_round: bool = False  # the gate passed but the Master Approver asked for one more targeted pass
+    overruled: bool = False  # the Master Approver wanted to approve below the bar; the gate kept the loop going
     llm_reviewed: bool = False
 
 

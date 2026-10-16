@@ -1,16 +1,16 @@
 """The agents' group chat: each node posts what it actually hands to the next agent.
 
 Every message is composed from the structured result the receiving agent consumes (the plan,
-the Team Lead's review, the evidence pool, the drafts, the verdicts and gaps, the gate decision),
+the Master Approver's review, the evidence pool, the drafts, the verdicts and gaps, the gate decision),
 so the chat is a readable view of the real hand-offs rather than narration. The orchestrator
 emits each message as an AGENT_MESSAGE audit event, so it is persisted, streamed live over
 SSE and covered by the run's SHA-256 hash chain.
 
-The Team Lead (master agent) runs both rooms:
+The Master Approver runs both rooms:
 
-* ``plan_review``   Planner ⇄ Team Lead, until the plan scores ≥ PLAN_APPROVAL_THRESHOLD
-* ``evidence_loop`` Team Lead → Researcher → Drafter → Verifier → Team Lead, round after round,
-                    until the Team Lead approves the work (never below the quality gate's bar
+* ``plan_review``   Planner ⇄ Master Approver, until the plan scores ≥ PLAN_APPROVAL_THRESHOLD
+* ``evidence_loop`` Master Approver → Researcher → Drafter → Verifier → Master Approver, round after round,
+                    until the Master Approver approves the work (never below the quality gate's bar
                     while rounds and budget remain)
 """
 
@@ -54,7 +54,7 @@ def plan_proposal(
         items = [*(f"Changed: {_clip(n, 170)}" for n in notes), *(f"{sq.id}: {_clip(sq.question, 170)}" for sq in sub_questions)]
         kind = "revision"
     return AgentMessage(
-        run_id=run_id, channel="plan_review", round=plan_round, sender="planner", to=["lead"], kind=kind,
+        run_id=run_id, channel="plan_review", round=plan_round, sender="planner", to=["master"], kind=kind,
         text=text, items=items, refs=[sq.id for sq in sub_questions],
     )
 
@@ -81,7 +81,7 @@ def plan_verdict(run_id: str, review: PlanReview) -> AgentMessage:
         for i in review.issues
     ]
     return AgentMessage(
-        run_id=run_id, channel="plan_review", round=review.round, sender="lead", to=to, kind=kind,
+        run_id=run_id, channel="plan_review", round=review.round, sender="master", to=to, kind=kind,
         text=text.strip(), items=items, score=review.score, threshold=review.threshold,
         passed=review.passed, refs=sorted({i.target for i in review.issues if i.target != "plan"}),
     )
@@ -100,7 +100,7 @@ def evidence_handoff(
 ) -> AgentMessage:
     tier1 = sum(s.authority.tier.value == "TIER_1" for s in new_sources.values())
     briefed = [i for i in instructions if i.agent == "researcher"]
-    verb = ("Following the Team Lead's instructions, re-searched" if briefed else "Re-searched") if iteration > 1 else "Researched"
+    verb = ("Following the Master Approver's instructions, re-searched" if briefed else "Re-searched") if iteration > 1 else "Researched"
     text = (f"{verb} {', '.join(targets)}: {len(new_sources)} new source(s), {tier1} Tier 1, "
             f"{total_sources} in the evidence pool. Drafter, evidence is indexed with exact spans.")
     top = sorted(new_sources.values(), key=lambda s: s.authority.score, reverse=True)[:3]
@@ -128,7 +128,7 @@ def drafts_handoff(
         notes = sum(len(g.feedback) for g in gaps if g.sub_question_id in ids)
         briefs = sum(i.agent == "drafter" and i.sub_question_id in ids for i in instructions)
         text = (f"Re-drafted {', '.join(d.sub_question_id for d in drafts)} using the Verifier's notes on {notes} "
-                f"rejected claim(s) and {briefs} instruction(s) from the Team Lead. Verifier, please re-check.")
+                f"rejected claim(s) and {briefs} instruction(s) from the Master Approver. Verifier, please re-check.")
     else:
         text = f"Drafted {len(drafts)} section(s) citing {len(cited)} distinct source(s). Verifier, over to you."
     items = []
@@ -153,7 +153,7 @@ def verdicts_handoff(
     gaps: Sequence[VerificationGap],
     contradictions: Sequence[ContradictionItem],
 ) -> AgentMessage:
-    text = (f"Round {metrics.iteration} report for the Team Lead. Checked {metrics.total_claims} claim(s): "
+    text = (f"Round {metrics.iteration} report for the Master Approver. Checked {metrics.total_claims} claim(s): "
             f"{metrics.supported} supported, {metrics.unsupported} unsupported, {metrics.contradicted} contradicted. "
             f"Grounding {metrics.grounding_rate:.0%}, coverage {metrics.coverage_score:.0%}.")
     if gaps:
@@ -166,7 +166,7 @@ def verdicts_handoff(
     items.extend(f"Conflict: {_clip(c.topic, 80)} ({c.source_a} vs {c.source_b})" for c in cross[:3])
     return AgentMessage(
         run_id=run_id, channel="evidence_loop", round=metrics.iteration, sender="verifier",
-        to=["lead"], kind="verdict", text=text, items=items,
+        to=["master"], kind="verdict", text=text, items=items,
         score=metrics.grounding_rate, refs=[g.sub_question_id for g in gaps],
     )
 
@@ -191,7 +191,7 @@ def round_decision(run_id: str, review: RoundReview, *, max_iterations: int) -> 
         items.append("The quality gate overruled my approval: the bar is not met and rounds remain")
     items.append(f"Round {review.round} of at most {max_iterations}")
     return AgentMessage(
-        run_id=run_id, channel="evidence_loop", round=review.round, sender="lead",
+        run_id=run_id, channel="evidence_loop", round=review.round, sender="master",
         to=["researcher", "drafter", "verifier"] if review.decision == "another_round" else ["synthesizer"],
         kind="decision", text=" ".join(text.split()), items=items, score=g, threshold=gt, passed=review.gate_passed,
         refs=list(review.target_sub_question_ids),

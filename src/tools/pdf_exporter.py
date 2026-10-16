@@ -1,7 +1,7 @@
 """ReportLab executive PDF: a designed research report with a full verification and audit appendix.
 
 Layout: a cover with the verification seal and headline metrics; the executive summary; how the
-report was produced (agent workflow diagram, the Team Lead's plan and round decisions); a
+report was produced (agent workflow diagram, the Master Approver's plan and round decisions); a
 verification dashboard (charts); detailed findings with confidence bars; the contradiction radar;
 sources with authority bars; methodology; and appendices (claim audit, stripped claims, the agents'
 group chat, governance and the hash-chained audit trail, Mesh API telemetry).
@@ -50,7 +50,7 @@ RULE = colors.HexColor("#e2e8f0")
 PAPER = colors.HexColor("#f8fafc")
 NAVY = colors.HexColor("#0b1530")
 NAVY_2 = colors.HexColor("#1e2a5a")
-ACCENT = colors.HexColor("#4f46e5")  # Team Lead indigo
+ACCENT = colors.HexColor("#4f46e5")  # Master Approver indigo
 ACCENT_SOFT = colors.HexColor("#eef2ff")
 BLUE = colors.HexColor("#2a78d6")  # series 1
 ORANGE = colors.HexColor("#eb6834")  # series 2
@@ -63,15 +63,15 @@ BAD_SOFT = colors.HexColor("#fef2f2")
 VERDICT_COLORS = {"SUPPORTED": GOOD, "CONTRADICTED": BAD, "UNSUPPORTED": WARN}
 TIER_COLORS = {"TIER_1": GOOD, "TIER_2": BLUE, "TIER_3": WARN}
 AGENT_COLORS = {
-    "input_guard": colors.HexColor("#f59e0b"), "planner": colors.HexColor("#a855f7"), "lead": ACCENT,
+    "input_guard": colors.HexColor("#f59e0b"), "planner": colors.HexColor("#a855f7"), "master": ACCENT,
     "researcher": colors.HexColor("#0891b2"), "drafter": colors.HexColor("#db2777"), "verifier": colors.HexColor("#16a34a"),
     "synthesizer": colors.HexColor("#2563eb"), "output_guard": colors.HexColor("#f59e0b"), "quality_gate": MUTED,
-    "approver": ACCENT,
+    "approver": ACCENT, "lead": ACCENT,
 }
 AGENT_NAMES = {
-    "input_guard": "Input shield", "planner": "Planner", "lead": "Team Lead", "researcher": "Researcher",
+    "input_guard": "Input shield", "planner": "Planner", "master": "Master Approver", "researcher": "Researcher",
     "drafter": "Drafter", "verifier": "Verifier", "synthesizer": "Synthesizer", "output_guard": "Output shield",
-    "quality_gate": "Quality gate", "approver": "Approver",
+    "quality_gate": "Quality gate", "approver": "Approver", "lead": "Master Approver",
 }
 PAGE_W, PAGE_H = A4
 MARGIN = 18 * mm
@@ -104,7 +104,7 @@ def _styles() -> dict[str, ParagraphStyle]:
         "cover_meta": ps("cm", fontSize=8.5, leading=11.5, textColor=colors.HexColor("#94a3b8")),
         "h2": ps("h2", fontSize=11.5, leading=15, textColor=INK, fontName="Helvetica-Bold", spaceBefore=8, spaceAfter=4),
         "body": ps("b", fontSize=9.6, leading=14.2),
-        "lead": ps("l", fontSize=10.6, leading=15.8, textColor=INK),
+        "master": ps("l", fontSize=10.6, leading=15.8, textColor=INK),
         "muted": ps("m", fontSize=8, leading=11, textColor=MUTED),
         "small": ps("s", fontSize=7.6, leading=10, textColor=MUTED),
         "cell": ps("c", fontSize=7.5, leading=9.6),
@@ -278,7 +278,7 @@ def _label(d: Drawing, x: float, y: float, text: str, color: Any = MUTED, anchor
 
 
 def workflow_diagram(report: FinalReport, width: float) -> Drawing:
-    """Shield -> Planner <-> Team Lead -> (Researcher -> Drafter -> Verifier) -> Team Lead -> Synthesizer -> Publish."""
+    """Shield -> Planner <-> Master Approver -> (Researcher -> Drafter -> Verifier) -> Master Approver -> Synthesizer -> Publish."""
     h = 190
     d = Drawing(width, h)
     m = report.metrics
@@ -293,12 +293,12 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
         xs.append(xs[-1] + w_units * unit + gap)
     col_w = [unit, unit, 3.3 * unit, unit, unit]
     row_y, row_h = 18, 48
-    # top: Team Lead over the group
+    # top: Master Approver over the group
     lx, lw, ly, lh = xs[2], col_w[2], 128, 50
     d.add(Rect(lx, ly, lw, lh, rx=8, ry=8, fillColor=ACCENT_SOFT, strokeColor=ACCENT, strokeWidth=1.6))
     d.add(Circle(lx + 18, ly + lh / 2, 9, fillColor=ACCENT, strokeColor=None))
     d.add(String(lx + 18, ly + lh / 2 - 3, "TL", fontName="Helvetica-Bold", fontSize=7, fillColor=colors.white, textAnchor="middle"))
-    d.add(String(lx + 34, ly + lh - 17, "Team Lead (master agent)", fontName="Helvetica-Bold", fontSize=9, fillColor=INK))
+    d.add(String(lx + 34, ly + lh - 17, "Master Approver", fontName="Helvetica-Bold", fontSize=9, fillColor=INK))
     final = report.round_reviews[-1] if report.round_reviews else None
     verdict = ("approved for synthesis" if final and final.gate_passed else "approved, gaps disclosed") if final else "approved"
     d.add(String(lx + 34, ly + lh - 29, _clean(f"plan v{plan_v} approved ({m.plan_score:.2f})  .  {rounds} round(s) reviewed"), fontName="Helvetica", fontSize=6.8, fillColor=MUTED))
@@ -312,7 +312,7 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     gx, gw = xs[2], col_w[2]
     d.add(Rect(gx - 4, row_y - 12, gw + 8, row_h + 16, rx=9, ry=9, fillColor=colors.HexColor("#f0fdf4"),
                strokeColor=colors.HexColor("#86efac"), strokeWidth=0.9, strokeDashArray=[3, 2]))
-    d.add(String(gx + 2, row_y - 8, "EVIDENCE GROUP CHAT", fontName="Helvetica-Bold", fontSize=5.8, fillColor=GOOD))
+    d.add(String(gx + 2, row_y - 8, "GROUP CHAT: RESEARCHER + DRAFTER + VERIFIER", fontName="Helvetica-Bold", fontSize=5.8, fillColor=GOOD))
     d.add(String(gx + gw - 2, row_y - 8, _clean(f"{rounds} round(s)"), fontName="Helvetica", fontSize=5.8, fillColor=GOOD, textAnchor="end"))
     sub_w = (gw - 2 * 10) / 3
     group = [("researcher", "Researcher", f"{m.sources_indexed} sources"), ("drafter", "Drafter", "cited drafts"),
@@ -329,7 +329,7 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     mid = row_y + row_h / 2
     _arrow(d, xs[0] + col_w[0] + 1, mid, xs[1] - 1, mid)
     _arrow(d, xs[3] + col_w[3] + 1, mid, xs[4] - 1, mid)
-    # planner <-> lead
+    # planner <-> master
     pcx = xs[1] + col_w[1] / 2
     _arrow(d, pcx - 8, row_y + row_h, pcx - 8, ly + lh * 0.65, SUBTLE)
     d.add(Line(pcx - 8, ly + lh * 0.65, lx, ly + lh * 0.65, strokeColor=SUBTLE, strokeWidth=1.1))
@@ -338,14 +338,14 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     _arrow(d, pcx + 8, ly + lh * 0.3, pcx + 8, row_y + row_h + 1, ORANGE if sent_back else SUBTLE, dashed=True)
     _label(d, (pcx + lx) / 2, ly + lh * 0.65 + 6, f"plan v{plan_v}")
     _label(d, (pcx + lx) / 2, ly + lh * 0.3 - 9, f"revise x{sent_back}" if sent_back else "revise", ORANGE if sent_back else MUTED)
-    # lead <-> group
+    # master <-> group
     _arrow(d, centers[0], ly, centers[0], row_y + row_h + 1, ORANGE if extra else SUBTLE, dashed=bool(extra))
     _label(d, centers[0], (ly + row_y + row_h) / 2, f"another round x{extra}" if extra else "dispatch", ORANGE if extra else MUTED)
     _arrow(d, centers[1], ly, centers[1], row_y + row_h + 1)
     _label(d, centers[1], (ly + row_y + row_h) / 2, "instructions")
     _arrow(d, centers[2], row_y + row_h, centers[2], ly - 1)
     _label(d, centers[2], (ly + row_y + row_h) / 2, "round report")
-    # lead -> synthesizer
+    # master -> synthesizer
     sx = xs[3] + col_w[3] / 2
     d.add(Line(lx + lw, ly + lh / 2, sx, ly + lh / 2, strokeColor=GOOD, strokeWidth=1.4))
     _arrow(d, sx, ly + lh / 2, sx, row_y + row_h + 1, GOOD, width=1.4)
@@ -527,7 +527,7 @@ def _render(
 
     # -- 1 executive summary ------------------------------------------------------------
     story += [SectionHeader("1", "Executive summary", "What the verified evidence says"), Spacer(1, 4)]
-    story.append(_callout([_p(report.executive_summary, s["lead"])], width))
+    story.append(_callout([_p(report.executive_summary, s["master"])], width))
     if report.key_findings:
         story += [Spacer(1, 10), _p("Key findings", s["h2"])]
         rows = [[Paragraph(f'<font color="#4f46e5"><b>{i:02d}</b></font>', s["finding"]), _p(f, s["finding"])]
@@ -543,15 +543,15 @@ def _render(
 
     # -- 2 how it was produced ------------------------------------------------------------
     story += [CondPageBreak(80 * mm), Spacer(1, 10),
-              SectionHeader("2", "How this report was produced", "A Team Lead (master agent) supervising a group of verifying agents"),
+              SectionHeader("2", "How this report was produced", "A Master Approver supervising a group of verifying agents"),
               Spacer(1, 4)]
     story.append(_p(
-        "The workflow on the cover shows the team. The input shield screens the question. The Planner splits it into sub-questions, and the Team Lead scores the plan and sends it "
-        "back until it clears the bar. The Team Lead then dispatches the Researcher, Drafter and Verifier, who work as a group chat. After "
-        "every round the Verifier reports to the Team Lead, which either orders another round, with an instruction for each agent, or "
-        "approves the work for the Synthesizer. A deterministic quality gate is a floor the Team Lead cannot lower.", s["body"]))
+        "The workflow on the cover shows the team. The input shield screens the question. The Planner splits it into sub-questions, and the Master Approver scores the plan and sends it "
+        "back until it clears the bar. The Master Approver then dispatches the Researcher, Drafter and Verifier, who work as a group chat. After "
+        "every round the Verifier reports to the Master Approver, which either orders another round, with an instruction for each agent, or "
+        "approves the work for the Synthesizer. A deterministic quality gate is a floor the Master Approver cannot lower.", s["body"]))
     if report.plan_reviews:
-        story += [Spacer(1, 6), _p("Plan reviews by the Team Lead", s["h2"])]
+        story += [Spacer(1, 6), _p("Plan reviews by the Master Approver", s["h2"])]
         rows = [[_p(h, s["cellh"]) for h in ("VER.", "SCORE", "DECISION", "SIGNIFICANT ISSUES", "SUMMARY")]]
         for r in report.plan_reviews:
             decision = "approved" if r.passed else "proceeded with open issues" if r.forced else "sent back"
@@ -565,7 +565,7 @@ def _render(
                          _p(issues, s["cell"]), _p(r.summary, s["cell"])])
         story.append(_table(rows, [width * 0.08, width * 0.11, width * 0.14, width * 0.37, width * 0.30]))
     if report.round_reviews:
-        story += [CondPageBreak(45 * mm), Spacer(1, 8), _p("Round reviews by the Team Lead", s["h2"])]
+        story += [CondPageBreak(45 * mm), Spacer(1, 8), _p("Round reviews by the Master Approver", s["h2"])]
         rows = [[_p(h, s["cellh"]) for h in ("RND", "GROUNDING", "COVERAGE", "DECISION", "RATIONALE AND INSTRUCTIONS")]]
         for rr in report.round_reviews:
             decision = ("extra pass" if rr.extra_round else "another round") if rr.decision == "another_round" else ("approved" if rr.gate_passed else "approved, gaps disclosed")
@@ -643,14 +643,14 @@ def _render(
     story += [CondPageBreak(60 * mm), Spacer(1, 8),
               SectionHeader("7", "Methodology", "How every claim in this report was checked"), Spacer(1, 4)]
     method = [
-        ("Planning under review", "The Team Lead scores each plan on coverage, distinctness, searchability, premise testing and specificity, plus "
+        ("Planning under review", "The Master Approver scores each plan on coverage, distinctness, searchability, premise testing and specificity, plus "
          "deterministic checks for dropped entities and overlapping sub-questions. Weak plans are revised before any retrieval runs."),
         ("Shielded retrieval", "Pages are fetched through a URL shield (no private networks), cleaned of injected instructions by a content shield, "
          "scored for authority (Tier 1 official and peer reviewed, Tier 2 reputable, Tier 3 other) and indexed as exact character spans."),
         ("Claim-level verification", "Drafts are split into atomic claims. Each claim is judged only against the spans of the sources it cites. The "
          "supporting quote must exist verbatim in the source, figures must match, and the source must clear the admissibility floor."),
-        ("Team Lead rounds", "The Verifier reports each round to the Team Lead. Below the grounding and coverage bar the group must go again, with "
-         "instructions for each agent; the Team Lead approves only work that clears the bar, or discloses the gaps when rounds run out."),
+        ("Master Approver rounds", "The Verifier reports each round to the Master Approver. Below the grounding and coverage bar the group must go again, with "
+         "instructions for each agent; the Master Approver approves only work that clears the bar, or discloses the gaps when rounds run out."),
         ("Publication", "The Synthesizer sees only supported claims; a citation guard drops any sentence citing unverified sources. The output shield "
          "redacts personal data and secrets, and every step is sealed in a SHA-256 hash-chained audit trail."),
     ]
@@ -693,7 +693,7 @@ def _render(
         rows = []
         room = None
         for msg in chat:
-            label = {"plan_review": f"Plan review . version {msg.get('round', 1)}", "evidence_loop": f"Evidence group chat . round {msg.get('round', 1)}",
+            label = {"plan_review": f"Plan review . version {msg.get('round', 1)}", "evidence_loop": f"Group chat . round {msg.get('round', 1)}",
                      "publish": "Publish"}.get(str(msg.get("channel")), str(msg.get("channel")))
             if label != room:
                 rows.append([Paragraph(f'<font color="#64748b"><b>{_x(label.upper())}</b></font>', s["cellh"]), ""])

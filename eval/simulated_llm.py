@@ -14,8 +14,8 @@ evaluation harness. It is NOT a language model and its scores are NOT Mesh-model
 first drafts (no verifier feedback present), which exercises the verifier's rejection path
 and the loop-back edge end-to-end.
 
-`reject_first_plan=True` makes the Team Lead raise a blocking issue on the first plan, which
-exercises the Planner <-> Team Lead revision loop.
+`reject_first_plan=True` makes the Master Approver raise a blocking issue on the first plan, which
+exercises the Planner <-> Master Approver revision loop.
 """
 
 from __future__ import annotations
@@ -169,11 +169,11 @@ class HeuristicMeshSimulator:
         subs = [{"question": sq["question"], "search_queries": sq["search_queries"][:3], "priority": min(i + 1, 5)}
                 for i, sq in enumerate(current)]
         notes = []
-        for issue in p.get("lead_review", {}).get("issues", []):
+        for issue in p.get("master_review", {}).get("issues", []):
             if issue.get("severity") in ("high", "medium") and len(subs) < 5:
                 subs.append({
                     "question": f"What official statistics or primary data quantify {core}?",
-                    "rationale": "Requested by the Team Lead.",
+                    "rationale": "Requested by the Master Approver.",
                     "search_queries": [f"{core} official statistics"],
                     "priority": min(len(subs) + 1, 5),
                 })
@@ -183,7 +183,7 @@ class HeuristicMeshSimulator:
 
     _PREMISE_WORDS = frozenset("disputed contradicted myth premise whether verify true evidence".split())
 
-    def _lead_plan(self, p: dict[str, Any]) -> dict[str, Any]:
+    def _master_plan(self, p: dict[str, Any]) -> dict[str, Any]:
         question = p.get("research_question", "")
         subs = p.get("plan", {}).get("sub_questions", [])
         plan_text = " ".join(f"{sq['question']} {' '.join(sq.get('search_queries', []))}" for sq in subs)
@@ -218,8 +218,8 @@ class HeuristicMeshSimulator:
         verdict = "needs revision" if issues else "ready for retrieval"
         return {"rubric": rubric, "issues": issues, "summary": f"Plan reviewed against the rubric: {verdict}."}
 
-    def _lead_review(self, p: dict[str, Any]) -> dict[str, Any]:
-        """Conservative lead: loops only when the quality gate requires it, approves otherwise."""
+    def _master_review(self, p: dict[str, Any]) -> dict[str, Any]:
+        """Conservative Master Approver: loops only when the quality gate requires it, approves otherwise."""
         gate = p.get("quality_gate", {})
         gaps = p.get("gaps", [])
         if not gate.get("another_round_required"):
