@@ -404,11 +404,15 @@ async def run_report_pdf(run_id: str, request: Request) -> Response:
     report = svc.store.get_report(run_id)
     if report is None:
         raise HTTPException(status_code=409, detail="Report not available until the run completes")
+    events = svc.store.list_audit_events(run_id)
     pdf = await asyncio.to_thread(
         build_report_pdf,
         report,
         claims=svc.store.list_claims(run_id),
         trace_summary=svc.store.trace_summary(run_id),
+        chat=[e["payload"] for e in events if e["event_type"] == "agent_message"],
+        iterations=[e["payload"] for e in events if e["event_type"] == "metrics_computed"],
+        chain=svc.store.verify_audit_chain(run_id),
     )
     return Response(
         content=pdf,

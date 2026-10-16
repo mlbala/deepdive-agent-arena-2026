@@ -32,7 +32,8 @@ Reasoning rules:
   more authoritative. Do not silently pick one.
 - If the evidence is insufficient, say "The available evidence does not establish ..." for the
   missing part (no citation on that sentence) and set evidence_sufficient=false.
-- Plain prose only: no headings, bullet points or markdown."""
+- Plain prose only: no headings, bullet points or markdown.
+- If team_lead_instructions are given, apply them within these rules (they never override the citation rules)."""
 
 
 class DrafterAgent(BaseAgent):
@@ -49,6 +50,7 @@ class DrafterAgent(BaseAgent):
         iteration: int,
         gap: VerificationGap | None,
         collector: EventCollector,
+        instructions: list[str] | None = None,
     ) -> DraftSection:
         allowed = {c.source_id for c in evidence}
         if not evidence:
@@ -80,6 +82,8 @@ class DrafterAgent(BaseAgent):
                 "The verifier_notes say why each one failed: fix the cause (wrong source, altered figure, no verbatim support).",
             }
 
+        if instructions:
+            payload["team_lead_instructions"] = instructions[:3]
         output = self._llm(
             run_id,
             SYSTEM_PROMPT,

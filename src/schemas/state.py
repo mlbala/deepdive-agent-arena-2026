@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Annotated, Any, TypedDict, TypeVar
 
 from src.schemas.domain import (
+    AgentInstruction,
     AgentMessage,
     AtomicClaim,
     AuditEvent,
@@ -27,6 +28,7 @@ from src.schemas.domain import (
     IterationMetrics,
     PlanReview,
     RefinementQuery,
+    RoundReview,
     SourceDocument,
     SubQuestion,
     VerificationGap,
@@ -63,12 +65,18 @@ class ResearchState(TypedDict, total=False):
     llm_screen: str
     budget_exhausted: bool
 
-    # --- Planning & plan review (Planner <-> Approver) ------------------------
+    # --- Planning & plan review (Planner <-> Team Lead) -----------------------
     sub_questions: list[SubQuestion]
     research_strategy: str
     plan_round: int
     plan_review: PlanReview | None
     plan_reviews: Annotated[list[PlanReview], append_list]
+    plan_approved: bool
+
+    # --- Team Lead coordination ---------------------------------------------------
+    lead_decision: str  # revise | dispatch | another_round | approve
+    round_reviews: Annotated[list[RoundReview], append_list]
+    lead_instructions: list[AgentInstruction]  # for the next evidence round
 
     # --- Retrieval (keyed, merged across iterations) --------------------------
     sources: Annotated[dict[str, SourceDocument], merge_dicts]          # source_id -> doc
@@ -124,6 +132,10 @@ def initial_state(
         plan_round=0,
         plan_review=None,
         plan_reviews=[],
+        plan_approved=False,
+        lead_decision="",
+        round_reviews=[],
+        lead_instructions=[],
         sources={},
         evidence={},
         evidence_by_sq={},

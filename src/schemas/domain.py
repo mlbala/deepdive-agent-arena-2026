@@ -119,6 +119,7 @@ class AuditEventType(StrEnum):
     LLM_CALL = "llm_call"
     PLAN_CREATED = "plan_created"
     PLAN_REVIEWED = "plan_reviewed"
+    ROUND_REVIEWED = "round_reviewed"
     AGENT_MESSAGE = "agent_message"
     SEARCH_EXECUTED = "search_executed"
     SOURCE_INDEXED = "source_indexed"
@@ -359,8 +360,8 @@ class PlanIssue(_Model):
     severity: Severity = Severity.MEDIUM
     problem: str = Field(min_length=3)
     fix: str = Field(default="", description="A concrete change the Planner can make.")
-    origin: Literal["approver", "check"] = "approver"  # LLM review or deterministic plan check
-    blocking: bool = False  # set by the Approver: this issue alone keeps the plan from passing
+    origin: Literal["lead", "check"] = "lead"  # Team Lead model review or deterministic plan check
+    blocking: bool = False  # set by the Team Lead: this issue alone keeps the plan from passing
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -369,7 +370,7 @@ class PlanIssue(_Model):
 
 
 class PlanReview(_Model):
-    """The Approver's verdict on one version of the plan."""
+    """The Team Lead's verdict on one version of the plan."""
 
     round: int = Field(ge=1)
     score: float = Field(ge=0.0, le=1.0)
@@ -379,7 +380,36 @@ class PlanReview(_Model):
     rubric: dict[str, float] = Field(default_factory=dict)
     issues: list[PlanIssue] = Field(default_factory=list)
     summary: str = ""
-    llm_reviewed: bool = True  # False when the Approver model was unavailable and only the checks ran
+    llm_reviewed: bool = True  # False when the Team Lead model was unavailable and only the checks ran
+
+
+class AgentInstruction(_Model):
+    """A Team Lead instruction to one agent for the next evidence round."""
+
+    agent: Literal["researcher", "drafter"]
+    sub_question_id: str
+    instruction: str
+    origin: Literal["lead", "gate"] = "lead"  # written by the Team Lead model, or derived from the Verifier's gap
+
+
+class RoundReview(_Model):
+    """The Team Lead's decision after one evidence round (researcher -> drafter -> verifier)."""
+
+    round: int = Field(ge=1)
+    decision: Literal["approve", "another_round"]
+    gate_passed: bool  # the deterministic grounding/coverage thresholds were met
+    floor: Literal["researcher", "synthesizer"]  # what the deterministic quality gate alone would do
+    reason: str
+    rationale: str = ""
+    target_sub_question_ids: list[str] = Field(default_factory=list)
+    instructions: list[AgentInstruction] = Field(default_factory=list)
+    grounding_rate: float = 0.0
+    coverage_score: float = 0.0
+    grounding_threshold: float = 0.0
+    coverage_threshold: float = 0.0
+    extra_round: bool = False  # the gate passed but the Team Lead asked for one more targeted pass
+    overruled: bool = False  # the Team Lead wanted to approve below the bar; the gate kept the loop going
+    llm_reviewed: bool = False
 
 
 class AgentMessage(_Model):
@@ -484,6 +514,8 @@ class FinalReport(_Model):
     metrics: ReportMetrics = Field(default_factory=ReportMetrics)
     guard_removed_sentences: list[str] = Field(default_factory=list)
     governance: GovernanceSummary | None = None
+    plan_reviews: list[PlanReview] = Field(default_factory=list)
+    round_reviews: list[RoundReview] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=utcnow)
 
 
@@ -560,6 +592,34 @@ class PlanReviewOutput(_Model):
     rubric: PlanRubric
     issues: list[PlanIssueOut] = Field(default_factory=list)
     summary: str = Field(default="", description="1-3 sentences addressed to the Planner.")
+
+
+class AgentInstructionOut(_Model):
+    agent: Literal["researcher", "drafter"]
+    sub_question_id: str
+    instruction: str = Field(min_length=3, description="One concrete, actionable instruction.")
+
+    @field_validator("agent", mode="before")
+    @classmethod
+    def _lower_agent(cls, value: Any) -> Any:
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class RoundReviewOutput(_Model):
+    decision: Literal["approve", "another_round"]
+    rationale: str = Field(default="", description="1-2 sentences addressed to the team.")
+    focus_sub_question_ids: list[str] = Field(default_factory=list)
+    instructions: list[AgentInstructionOut] = Field(default_factory=list)
+
+    @field_validator("decision", mode="before")
+    @classmethod
+    def _normalise_decision(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            v = value.strip().lower().replace(" ", "_").replace("-", "_")
+            aliases = {"approved": "approve", "loop": "another_round", "retry": "another_round",
+                       "revise": "another_round", "loop_back": "another_round", "another": "another_round"}
+            return aliases.get(v, v)
+        return value
 
 
 class RefinementQuery(_Model):

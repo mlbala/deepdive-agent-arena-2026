@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     mesh_default_model: str = "openai/gpt-4o-mini"
     mesh_embedding_model: str = "openai/text-embedding-3-small"
     planner_model: str | None = None
-    approver_model: str | None = None
+    lead_model: str | None = None
     researcher_model: str | None = None
     drafter_model: str | None = None
     verifier_model: str | None = None
@@ -75,9 +75,10 @@ class Settings(BaseSettings):
     grounding_threshold: float = Field(default=0.75, ge=0, le=1)
     min_source_authority: float = Field(default=0.45, ge=0, le=1)  # evidence admissibility floor
 
-    # --- Plan review gate (Planner <-> Approver) --------------------------------
+    # --- Team Lead (master agent) gates -------------------------------------------
     plan_approval_threshold: float = Field(default=0.80, ge=0, le=1)
     max_plan_revisions: int = Field(default=2, ge=0, le=4)
+    lead_extra_rounds: int = Field(default=1, ge=0, le=2)  # extra passes the Team Lead may add after the gate passes
 
     # --- Storage & concurrency ----------------------------------------------
     database_url: str = "sqlite:///./data/deepdive.db"
@@ -171,7 +172,7 @@ class Settings(BaseSettings):
         explicit = self._csv(self.allowed_models)
         if explicit:
             return frozenset(explicit)
-        agents = ("planner", "approver", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
+        agents = ("planner", "lead", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
         return frozenset({self.mesh_default_model, self.mesh_embedding_model, *(self.model_for(a) for a in agents)})
 
     @property
@@ -209,6 +210,7 @@ class Settings(BaseSettings):
             "min_source_authority": self.min_source_authority,
             "plan_approval_threshold": self.plan_approval_threshold,
             "max_plan_revisions": self.max_plan_revisions,
+            "lead_extra_rounds": self.lead_extra_rounds,
             "policy_version": self.policy_version,
             "auth_required": bool(self.api_key_set),
         }
@@ -236,6 +238,7 @@ class Settings(BaseSettings):
             "quality_gates": {
                 "plan_approval_threshold": self.plan_approval_threshold,
                 "max_plan_revisions": self.max_plan_revisions,
+                "lead_extra_rounds": self.lead_extra_rounds,
                 "coverage_threshold": self.coverage_threshold,
                 "grounding_threshold": self.grounding_threshold,
             },

@@ -5,9 +5,9 @@ import { $, $$, api, esc, fmt, pct, store, toast } from './core.js';
 
 const A = { arch: null, stats: null, view: 'graph', getRun: () => store.runId, timelineFor: null };
 const KIND_COLOR = { guardrail: 'rgb(var(--orange))', agent: 'rgb(var(--accent))', decision: 'rgb(var(--purple))', tool: 'rgb(var(--cyan))', store: 'rgb(var(--teal))' };
-const NODE_KIND = { input_guard: 'guardrail', output_guard: 'guardrail', router: 'decision', planner: 'agent', approver: 'agent', researcher: 'agent', drafter: 'agent', verifier: 'agent', synthesizer: 'agent', followup: 'agent' };
-const LANE_LABEL = { input_guard: 'Input shield', planner: 'Planner', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', output_guard: 'Output shield', followup: 'Follow-up', embeddings: 'Mesh embeddings' };
-const AGENT_LANE = { guardian: 'input_guard', planner: 'planner', approver: 'approver', researcher: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup', embedder: 'embeddings' };
+const NODE_KIND = { input_guard: 'guardrail', output_guard: 'guardrail', router: 'decision', planner: 'agent', lead: 'agent', researcher: 'agent', drafter: 'agent', verifier: 'agent', synthesizer: 'agent', followup: 'agent' };
+const LANE_LABEL = { input_guard: 'Input shield', planner: 'Planner', lead: 'Team Lead', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', output_guard: 'Output shield', followup: 'Follow-up', embeddings: 'Mesh embeddings' };
+const AGENT_LANE = { guardian: 'input_guard', planner: 'planner', lead: 'lead', approver: 'lead', researcher: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup', embedder: 'embeddings' };
 
 async function load(force = false) {
   if (!A.arch || force) A.arch = await api('/api/architecture');

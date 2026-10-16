@@ -6,7 +6,7 @@ import { ICONS } from './explorer.js';
 export const AGENTS = [
   { id: 'input_guard', label: 'Shield', role: 'input guardrails', icon: 'shield', color: 'rgb(var(--orange))' },
   { id: 'planner', label: 'Planner', role: 'splits · revises', icon: 'plan', color: 'rgb(var(--purple))' },
-  { id: 'approver', label: 'Approver', role: 'plan quality gate', icon: 'approve', color: 'rgb(var(--indigo))' },
+  { id: 'lead', label: 'Team Lead', role: 'master agent', icon: 'lead', color: 'rgb(var(--indigo))' },
   { id: 'researcher', label: 'Researcher', role: 'search · score · index', icon: 'search', color: 'rgb(var(--cyan))' },
   { id: 'drafter', label: 'Drafter', role: 'cited drafts', icon: 'pen', color: 'rgb(var(--pink))' },
   { id: 'verifier', label: 'Verifier', role: 'claim-by-claim proof', icon: 'verify', color: 'rgb(var(--green))' },
@@ -14,15 +14,22 @@ export const AGENTS = [
   { id: 'output_guard', label: 'Publish', role: 'output shield · seal', icon: 'shieldOut', color: 'rgb(var(--orange))' },
 ];
 export const AGENT = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
-export const CHAT_AGENT = { ...AGENT, output_guard: { ...AGENT.output_guard, label: 'Output shield' }, quality_gate: { id: 'quality_gate', label: 'Quality gate', icon: 'route', color: 'rgb(var(--gray))' } };
-const MENTION = { Planner: 'planner', Approver: 'approver', Researcher: 'researcher', Drafter: 'drafter', Verifier: 'verifier', Synthesizer: 'synthesizer', 'Output shield': 'output_guard' };
+export const CHAT_AGENT = {
+  ...AGENT, output_guard: { ...AGENT.output_guard, label: 'Output shield' },
+  // senders from runs recorded before the Team Lead existed
+  approver: { id: 'approver', label: 'Approver', icon: 'approve', color: 'rgb(var(--indigo))' },
+  quality_gate: { id: 'quality_gate', label: 'Quality gate', icon: 'route', color: 'rgb(var(--gray))' },
+};
+const MENTION = { 'Team Lead': 'lead', Planner: 'planner', Approver: 'approver', Researcher: 'researcher', Drafter: 'drafter', Verifier: 'verifier', Synthesizer: 'synthesizer', 'Output shield': 'output_guard' };
 export const svgIcon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
 
 const KIND_LABEL = { proposal: 'Proposal', critique: 'Changes requested', revision: 'Revision', approval: 'Approved', evidence: 'Evidence', draft: 'Drafts', verdict: 'Verdicts', decision: 'Decision', report: 'Report' };
 function kindPill(m) {
-  if (m.kind === 'approval') return m.passed ? ['Approved', 'good'] : ['Approved with open issues', 'warn'];
+  const again = (m.to || []).includes('researcher');
+  if (m.kind === 'approval') return m.passed ? ['Plan approved', 'good'] : ['Plan approved with open issues', 'warn'];
   if (m.kind === 'critique') return ['Changes requested', 'warn'];
-  if (m.kind === 'decision' && m.sender === 'quality_gate') return m.passed ? ['Quality bar met', 'good'] : (m.to || []).includes('researcher') ? ['Loop back', 'warn'] : ['Publish with gaps', 'warn'];
+  if (m.kind === 'decision' && m.sender === 'lead') return again ? (m.passed ? ['Extra pass', 'warn'] : ['Another round', 'warn']) : m.passed ? ['Approved for synthesis', 'good'] : ['Approved with gaps', 'warn'];
+  if (m.kind === 'decision' && m.sender === 'quality_gate') return m.passed ? ['Quality bar met', 'good'] : again ? ['Loop back', 'warn'] : ['Publish with gaps', 'warn'];
   if (m.kind === 'decision') return ['Published', 'good'];
   return [KIND_LABEL[m.kind] || m.kind, ''];
 }
@@ -32,7 +39,7 @@ function rich(text) {
   return esc(text)
     .replace(/\bSRC-\d{3,4}\b/g, (id) => `<span class="chip" data-src="${id}">${id}</span>`)
     .replace(/\bSQ-\d+\b/g, (id) => `<span class="sqref">${id}</span>`)
-    .replace(/\b(Planner|Approver|Researcher|Drafter|Verifier|Synthesizer|Output shield)\b/g, (n) => `<span class="mention" style="--c:${CHAT_AGENT[MENTION[n]].color}">${n}</span>`);
+    .replace(/\b(Team Lead|Planner|Approver|Researcher|Drafter|Verifier|Synthesizer|Output shield)\b/g, (n) => `<span class="mention" style="--c:${CHAT_AGENT[MENTION[n]].color}">${n}</span>`);
 }
 
 export function chatMessage(m) {
@@ -40,7 +47,7 @@ export function chatMessage(m) {
   const [kind, tone] = kindPill(m);
   const items = m.items || [];
   const li = (x) => `<li class="${x.startsWith('   ') ? 'sub' : ''}">${rich(x.trim())}</li>`;
-  const isPct = m.sender === 'quality_gate';
+  const isPct = m.sender === 'quality_gate' || (m.sender === 'lead' && m.channel === 'evidence_loop');
   const f = (x) => (isPct ? pct(x) : Number(x).toFixed(2));
   const score = m.score !== null && m.score !== undefined && m.threshold !== null && m.threshold !== undefined
     ? `<div class="cmsg-score" data-state="${m.passed ? 'pass' : 'fail'}"><span>${isPct ? 'grounding' : 'score'} <b class="text-slate-100">${f(m.score)}</b></span><div class="pgauge" role="img" aria-label="${isPct ? 'grounding' : 'score'} ${f(m.score)}, needs ${f(m.threshold)}"><i style="width:${Math.round(Math.min(1, m.score) * 100)}%"></i><b style="left:calc(${Math.round(m.threshold * 100)}% - 1px)"></b></div><span>needs ${f(m.threshold)} ${m.passed ? '✓' : '✗'}</span></div>` : '';

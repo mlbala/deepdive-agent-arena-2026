@@ -9,7 +9,7 @@ import { openLens } from './lens.js';
 const NODES = [
   { id: 'input_guard', label: 'Input shield', sub: 'injection · harm · PII' },
   { id: 'planner', label: 'Planner', sub: 'MECE sub-questions' },
-  { id: 'approver', label: 'Approver', sub: 'plan quality gate' },
+  { id: 'lead', label: 'Team Lead', sub: 'master agent' },
   { id: 'researcher', label: 'Researcher', sub: '3-tier retrieval' },
   { id: 'drafter', label: 'Drafter', sub: 'cited drafts' },
   { id: 'verifier', label: 'Verifier', sub: 'entailment · radar' },

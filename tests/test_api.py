@@ -65,12 +65,12 @@ def test_dashboard_renders(client):
     for marker in ("Claim Matrix", "Contradiction Radar", "Governance", "Audit Trail", "EventSource"):
         assert marker in console_js
     explorer_js = client.get("/static/js/explorer.js")
-    assert explorer_js.status_code == 200 and "route_verification" in explorer_js.text
+    assert explorer_js.status_code == 200 and "route_lead" in explorer_js.text
     assert client.get("/static/css/app.css").status_code == 200
 
 
 def test_graph_endpoint_returns_mermaid(client):
-    assert "verifier -.-> researcher" in client.get("/api/graph").json()["mermaid"]
+    assert "lead -.-> researcher" in client.get("/api/graph").json()["mermaid"]
 
 
 def test_research_request_validation(client):
@@ -139,8 +139,11 @@ def test_pdf_export_contains_report_and_audit_appendix(client, container):
     assert response.headers["content-type"] == "application/pdf"
     assert response.content.startswith(b"%PDF")
     text = "\n".join(page.extract_text() for page in PdfReader(io.BytesIO(response.content)).pages)
-    for marker in ("Executive summary", "Contradiction radar", "Claim verification audit", "Mesh API telemetry"):
-        assert marker in text
+    for marker in ("Executive summary", "Contradiction radar", "Claim verification audit", "Mesh API telemetry",
+                   "How this report was produced", "Team Lead (master agent)", "Plan reviews by the Team Lead",
+                   "Round reviews by the Team Lead", "Verification dashboard", "group chat", "Governance and audit trail",
+                   "Hash chain intact"):
+        assert marker in text, marker
 
 
 def test_pdf_and_followup_require_completed_run(client, container):
@@ -365,12 +368,23 @@ def test_audit_bundle_export(client, container):
     assert client.get("/api/runs/run_missing/bundle").status_code == 404
 
 
+def test_explorer_graph_references_only_defined_edges(client):
+    """A dangling edge id throws mid-replay (inside a promise), so the graph would silently stop updating."""
+    import re
+
+    js = client.get("/static/js/explorer.js").text
+    defined = set(re.findall(r"\{ id: '([a-z_]+)', d: '", js))
+    referenced = set(re.findall(r"S\.edges\.([a-z_]+)", js)) | set(re.findall(r"edge = '([a-z_]+)'", js))
+    referenced |= {x for pair in re.findall(r"edge = [^;]*?\? '([a-z_]+)' : '([a-z_]+)'", js) for x in pair}
+    assert defined and referenced <= defined, referenced - defined
+
+
 def test_architecture_stats_and_timeline_endpoints(client, container):
     run_id = _run(client, container, max_iterations=2)
     arch = client.get("/api/architecture").json()
     assert [w["id"] for w in arch["workflow"]][:3] == ["ask", "screen", "plan"]
     assert {a["id"] for a in arch["agents"]} >= {"guardian", "planner", "researcher", "drafter", "verifier", "synthesizer", "followup"}
-    assert "verifier -.-> researcher" in arch["graph"]["mermaid"]
+    assert "lead -.-> researcher" in arch["graph"]["mermaid"]
     assert "rsk_" not in json.dumps(arch)
 
     stats = client.get("/api/architecture/stats").json()
@@ -389,8 +403,8 @@ def test_architecture_stats_and_timeline_endpoints(client, container):
 
     chat = client.get(f"/api/runs/{run_id}/chat").json()
     senders = [m["sender"] for m in chat]
-    assert senders[:2] == ["planner", "approver"] and senders[-2:] == ["synthesizer", "output_guard"]
-    assert {"researcher", "drafter", "verifier", "quality_gate"} <= set(senders)
+    assert senders[:2] == ["planner", "lead"] and senders[-2:] == ["synthesizer", "output_guard"]
+    assert {"researcher", "drafter", "verifier"} <= set(senders) and senders.count("lead") >= 2
     assert all(m["run_id"] == run_id and m["text"] for m in chat)
     assert client.get("/api/runs/run_missing/chat").status_code == 404
-    assert "approver" in {a["id"] for a in arch["agents"]} and "approve" in [w["id"] for w in arch["workflow"]]
+    assert "lead" in {a["id"] for a in arch["agents"]} and {"approve", "review"} <= {w["id"] for w in arch["workflow"]}

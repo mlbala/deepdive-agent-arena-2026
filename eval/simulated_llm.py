@@ -14,8 +14,8 @@ evaluation harness. It is NOT a language model and its scores are NOT Mesh-model
 first drafts (no verifier feedback present), which exercises the verifier's rejection path
 and the loop-back edge end-to-end.
 
-`reject_first_plan=True` makes the approver raise a blocking issue on the first plan, which
-exercises the Planner <-> Approver revision loop.
+`reject_first_plan=True` makes the Team Lead raise a blocking issue on the first plan, which
+exercises the Planner <-> Team Lead revision loop.
 """
 
 from __future__ import annotations
@@ -169,11 +169,11 @@ class HeuristicMeshSimulator:
         subs = [{"question": sq["question"], "search_queries": sq["search_queries"][:3], "priority": min(i + 1, 5)}
                 for i, sq in enumerate(current)]
         notes = []
-        for issue in p.get("approver_review", {}).get("issues", []):
+        for issue in p.get("lead_review", {}).get("issues", []):
             if issue.get("severity") in ("high", "medium") and len(subs) < 5:
                 subs.append({
                     "question": f"What official statistics or primary data quantify {core}?",
-                    "rationale": "Requested by the approver.",
+                    "rationale": "Requested by the Team Lead.",
                     "search_queries": [f"{core} official statistics"],
                     "priority": min(len(subs) + 1, 5),
                 })
@@ -183,7 +183,7 @@ class HeuristicMeshSimulator:
 
     _PREMISE_WORDS = frozenset("disputed contradicted myth premise whether verify true evidence".split())
 
-    def _approver(self, p: dict[str, Any]) -> dict[str, Any]:
+    def _lead_plan(self, p: dict[str, Any]) -> dict[str, Any]:
         question = p.get("research_question", "")
         subs = p.get("plan", {}).get("sub_questions", [])
         plan_text = " ".join(f"{sq['question']} {' '.join(sq.get('search_queries', []))}" for sq in subs)
@@ -217,6 +217,23 @@ class HeuristicMeshSimulator:
                   "searchability": round(searchable, 2), "premise_check": premise, "specificity": specificity}
         verdict = "needs revision" if issues else "ready for retrieval"
         return {"rubric": rubric, "issues": issues, "summary": f"Plan reviewed against the rubric: {verdict}."}
+
+    def _lead_review(self, p: dict[str, Any]) -> dict[str, Any]:
+        """Conservative lead: loops only when the quality gate requires it, approves otherwise."""
+        gate = p.get("quality_gate", {})
+        gaps = p.get("gaps", [])
+        if not gate.get("another_round_required"):
+            return {"decision": "approve", "rationale": "The supported claims cover the question; ready for synthesis.",
+                    "focus_sub_question_ids": [], "instructions": []}
+        instructions = []
+        for g in gaps:
+            core = _core(g.get("sub_question") or p.get("research_question", ""))
+            instructions.append({"agent": "researcher", "sub_question_id": g["sub_question_id"],
+                                 "instruction": f"Look for official statistics or primary reports on {core}."})
+            instructions.append({"agent": "drafter", "sub_question_id": g["sub_question_id"],
+                                 "instruction": "Remove claims the Verifier rejected; state only what the evidence says verbatim."})
+        return {"decision": "another_round", "rationale": "Grounding is below the bar; the weak sub-questions need primary evidence.",
+                "focus_sub_question_ids": [g["sub_question_id"] for g in gaps], "instructions": instructions}
 
     def _researcher(self, p: dict[str, Any]) -> dict[str, Any]:
         queries = []
