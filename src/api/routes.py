@@ -62,7 +62,7 @@ class FollowUpRequest(BaseModel):
 
 
 def services(request: Request) -> ServiceContainer:
-    return request.app.state.services  # type: ignore[no-any-return]
+    return request.app.state.services
 
 
 def _run_or_404(svc: ServiceContainer, run_id: str) -> dict[str, Any]:
@@ -78,7 +78,7 @@ def _run_or_404(svc: ServiceContainer, run_id: str) -> dict[str, Any]:
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request) -> HTMLResponse:
     svc = services(request)
-    return request.app.state.templates.TemplateResponse(  # type: ignore[no-any-return]
+    return request.app.state.templates.TemplateResponse(
         request,
         "index.html",
         {"config": svc.settings.public_summary(), "version": __version__},

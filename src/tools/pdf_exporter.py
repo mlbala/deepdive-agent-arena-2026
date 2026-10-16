@@ -205,19 +205,19 @@ def _render(report: FinalReport, claims: list[dict[str, Any]], trace_summary: di
         )
     )
     rows = [[_p(h, s["cellb"]) for h in ("Claim", "It.", "Verdict", "Conf.", "Evidence", "Quote", "In report")]]
-    for c in claims:
-        verdict = str(c.get("verdict", ""))
+    for row in claims:
+        verdict = str(row.get("verdict", ""))
         verdict_style = ParagraphStyle("v", parent=s["cellb"], textColor=VERDICT_COLORS.get(verdict, INK))
-        evidence = c.get("evidence_quote") or c.get("downgrade_reason") or c.get("rationale") or ""
+        evidence = row.get("evidence_quote") or row.get("downgrade_reason") or row.get("rationale") or ""
         rows.append(
             [
-                _p(f"{c.get('claim_id')}: {c.get('claim_text')}", s["cell"]),
-                _p(c.get("iteration"), s["cell"]),
+                _p(f"{row.get('claim_id')}: {row.get('claim_text')}", s["cell"]),
+                _p(row.get("iteration"), s["cell"]),
                 _p(verdict, verdict_style),
-                _p(f"{float(c.get('confidence') or 0):.2f}", s["cell"]),
-                _p(f"[{c.get('evidence_source_id') or '-'}] {evidence}", s["cell"]),
-                _p("verified" if c.get("quote_verified") else "not found", s["cell"]),
-                _p("yes" if c.get("included_in_report") else "no", s["cell"]),
+                _p(f"{float(row.get('confidence') or 0):.2f}", s["cell"]),
+                _p(f"[{row.get('evidence_source_id') or '-'}] {evidence}", s["cell"]),
+                _p("verified" if row.get("quote_verified") else "not found", s["cell"]),
+                _p("yes" if row.get("included_in_report") else "no", s["cell"]),
             ]
         )
     story.append(

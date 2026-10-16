@@ -4,6 +4,7 @@
     python3 -m eval.run_eval --retrieval live      # Tavily/DDG web retrieval instead of the offline corpus
     python3 -m eval.run_eval --llm simulated       # pipeline dry run with the deterministic simulator
     python3 -m eval.run_eval --update-readme       # also refresh the README results table
+    python3 -m eval.run_eval --render-only --update-readme   # re-render README from latest_results.json
 
 Metrics
 -------
@@ -313,7 +314,18 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--questions", nargs="*", help="subset of benchmark ids")
     parser.add_argument("--output", type=Path, default=RESULTS_PATH)
     parser.add_argument("--update-readme", action="store_true")
+    parser.add_argument(
+        "--render-only", action="store_true", help="re-render the README table from existing results (no runs)"
+    )
     args = parser.parse_args(argv)
+
+    if args.render_only:
+        existing = json.loads(args.output.read_text(encoding="utf-8"))
+        table = markdown_tables(existing)
+        print(table)
+        if args.update_readme:
+            print("README updated." if update_readme(table) else "README markers not found; skipped.")
+        return existing
 
     overrides: dict[str, Any] = {"database_url": "sqlite:///:memory:"}
     if args.retrieval == "offline":

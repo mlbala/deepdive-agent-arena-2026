@@ -32,6 +32,7 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import openai
@@ -362,7 +363,7 @@ class MeshGateway:
                 kwargs["response_format"] = {"type": "json_object"}
             try:
                 response, attempts = self._call_with_backoff(
-                    lambda kw=kwargs: self.client.chat.completions.create(**kw)
+                    partial(self.client.chat.completions.create, **kwargs)
                 )
                 return response, total_attempts + attempts
             except openai.BadRequestError as exc:
@@ -441,7 +442,7 @@ class MeshGateway:
             usage = _CallUsage()
             try:
                 response, attempts = self._call_with_backoff(
-                    lambda b=batch: self.client.embeddings.create(model=model, input=b)
+                    partial(self.client.embeddings.create, model=model, input=batch)
                 )
             except (MeshGatewayError, openai.BadRequestError) as exc:
                 self._emit_trace(
