@@ -55,8 +55,10 @@ def test_health_exposes_config_without_secrets(make_settings):
 
 def test_dashboard_renders(client):
     html = client.get("/").text
-    for marker in ("LangGraph execution", "How DeepDive works", "archSvg", "/static/js/app.js"):
+    for marker in ("Live Demo", "LangGraph execution", "How DeepDive works", "archSvg", "dScenarios", "/static/js/app.js"):
         assert marker in html
+    demo_js = client.get("/static/js/demo.js").text
+    assert "SCENARIOS" in demo_js and "/api/research" in demo_js
     console_js = client.get("/static/js/console.js").text
     for marker in ("Claim Matrix", "Contradiction Radar", "Governance", "Audit Trail", "EventSource"):
         assert marker in console_js

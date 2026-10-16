@@ -6,7 +6,7 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const NODE_H = 62;
 
 // ------------------------------------------------------------------ icons (24x24 stroke glyphs)
-const ICONS = {
+export const ICONS = {
   user: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.6-3.8 3.5-6.4 7-6.4s6.4 2.6 7 6.4"/>',
   shield: '<path d="M12 3l7 3v5.2c0 4.4-3 8.1-7 9.8-4-1.7-7-5.4-7-9.8V6z"/><path d="M9.2 12.2l1.9 1.9 3.7-3.9"/>',
   shieldOut: '<path d="M12 3l7 3v5.2c0 4.4-3 8.1-7 9.8-4-1.7-7-5.4-7-9.8V6z"/><path d="M9 12.5h6"/>',

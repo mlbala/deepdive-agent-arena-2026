@@ -32,16 +32,75 @@
         </div>
       </div>
       <nav class="order-last flex w-full rounded-xl border border-ink-700 bg-ink-900 p-1 sm:order-none sm:mx-auto sm:w-auto" role="tablist" aria-label="Views">
-        <button class="view-tab flex-1 sm:flex-none" data-view="console" aria-selected="true">Live Console</button>
+        <button class="view-tab flex-1 sm:flex-none" data-view="demo" aria-selected="true">Live Demo</button>
         <button class="view-tab flex-1 sm:flex-none" data-view="explorer" aria-selected="false">How it works</button>
+        <button class="view-tab flex-1 sm:flex-none" data-view="console" aria-selected="false">Console</button>
       </nav>
-      <div id="pills" class="hidden flex-wrap items-center gap-2 text-[11px] lg:flex"></div>
+      <span id="dataBadge" class="hidden rounded-full border border-ink-600 px-2.5 py-1 font-mono text-[10.5px] text-slate-400 md:inline-block" title="Where the data on screen comes from"></span>
+      <div id="pills" class="hidden flex-wrap items-center gap-2 text-[11px] 2xl:flex"></div>
       <a href="/docs" class="ml-auto rounded-md border border-ink-600 px-2.5 py-1 text-[11px] text-slate-300 hover:bg-ink-800 sm:ml-0">API docs</a>
     </div>
   </header>
 
+  <!-- ============================================================= LIVE DEMO -->
+  <div id="view-demo" class="mx-auto max-w-[1600px] space-y-4 p-4">
+    <section class="flex flex-wrap items-end gap-3">
+      <div class="min-w-0">
+        <h1 class="text-lg font-semibold tracking-tight">Watch DeepDive check every claim, live</h1>
+        <p class="max-w-4xl text-[13px] text-slate-400">AI search engines fully back only <b class="text-slate-200">51.5%</b> of their sentences with citations, and only <b class="text-slate-200">74.5%</b> of their citations support the sentence they're attached to (<a class="link" href="https://arxiv.org/abs/2304.09848" target="_blank" rel="noopener noreferrer">Liu et al., 2023</a>). DeepDive publishes a sentence only after it finds a verbatim quote for it in the cited source.</p>
+      </div>
+      <div class="ml-auto hidden flex-wrap items-center gap-2 text-[11px] text-slate-500 md:flex"><kbd>Space</kbd> play/pause <kbd>→</kbd> next step <kbd>R</kbd> reset</div>
+    </section>
+
+    <section id="dScenarios" class="grid gap-3 md:grid-cols-2 xl:grid-cols-3"></section>
+
+    <div class="grid grid-cols-12 gap-4">
+      <aside class="col-span-12 min-w-0 space-y-4 lg:col-span-3">
+        <section class="panel p-4">
+          <div class="panel-h mb-2">Question</div>
+          <textarea id="dQuestion" rows="4" maxlength="1000" class="w-full resize-none rounded-lg border border-ink-600 bg-ink-900 p-3 text-[14px] leading-snug text-slate-100 focus:border-indigo-500 focus:outline-none" aria-label="Research question"></textarea>
+          <button id="dRun" class="drun mt-3 w-full"><span class="dicon">▶</span> Run DeepDive</button>
+          <div class="mt-2 grid grid-cols-3 gap-2">
+            <button id="dPause" class="seg-btn" title="Play / pause (Space)">▶</button>
+            <button id="dStep" class="seg-btn" title="Next step (→)">⏭</button>
+            <button id="dReset" class="seg-btn" title="Reset (R)">↺</button>
+          </div>
+          <div class="mt-2 grid grid-cols-2 gap-2">
+            <div class="seg"><button data-speed="1" class="on">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button></div>
+            <div class="seg"><button data-mode="auto" class="on">Auto</button><button data-mode="step">Step</button></div>
+          </div>
+          <div class="mt-3 flex items-center"><button id="dSkip" class="link text-[12px]">Skip to result →</button><span id="dProgress" class="ml-auto font-mono text-[10.5px] text-slate-500"></span></div>
+          <button id="dReplay" class="btn-ghost mt-2 hidden w-full justify-center text-[11.5px]"></button>
+        </section>
+        <section class="panel p-4">
+          <div class="panel-h mb-2">Stages</div>
+          <div id="dStages" class="space-y-1"></div>
+        </section>
+      </aside>
+
+      <main class="col-span-12 min-w-0 space-y-4 lg:col-span-6">
+        <section class="panel overflow-x-auto p-4">
+          <div class="min-w-[620px]">
+            <div id="dAgents" class="grid grid-cols-7 gap-2"></div>
+            <svg id="dLoop" class="mt-1 h-9 w-full" viewBox="0 0 700 36" preserveAspectRatio="none" aria-hidden="true"><path d="M450 2 C450 34, 250 34, 250 2" fill="none" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>
+            <div class="-mt-3 text-center"><span id="dLoopLabel" class="dloop-label">not enough proof → search again</span></div>
+            <div id="dMesh" class="mt-3 text-center font-mono text-[10.5px] text-violet-300/80"></div>
+          </div>
+        </section>
+        <section id="dPanel" class="panel min-h-[440px] p-5" aria-live="polite"></section>
+      </main>
+
+      <aside class="col-span-12 min-w-0 lg:col-span-3">
+        <section class="panel flex h-full max-h-[920px] flex-col">
+          <div class="flex items-center border-b border-ink-700 px-4 py-3"><div class="panel-h">Run log</div><span class="ml-auto flex gap-1.5"><i class="h-2.5 w-2.5 rounded-full bg-rose-500/80"></i><i class="h-2.5 w-2.5 rounded-full bg-amber-400/80"></i><i class="h-2.5 w-2.5 rounded-full bg-emerald-500/80"></i></span></div>
+          <div id="dLog" class="flex-1 overflow-auto px-4 py-3 font-mono text-[12px] leading-relaxed scroll-thin"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
   <!-- ============================================================ LIVE CONSOLE -->
-  <div id="view-console" class="mx-auto grid max-w-[1600px] grid-cols-12 gap-4 p-4">
+  <div id="view-console" class="mx-auto hidden grid max-w-[1600px] grid-cols-12 gap-4 p-4">
     <aside class="col-span-12 min-w-0 space-y-4 xl:col-span-3">
       <section class="panel p-4">
         <div class="panel-h mb-3">New research run</div>
