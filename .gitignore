@@ -251,3 +251,6 @@ checks.py
 # OS / editor noise
 .DS_Store
 .idea/
+
+# Local assistant instructions (keep on this machine only)
+CLAUDE.md
