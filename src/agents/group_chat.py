@@ -121,9 +121,15 @@ def drafts_handoff(
     drafts: Sequence[DraftSection],
     gaps: Sequence[VerificationGap],
     instructions: Sequence[AgentInstruction] = (),
+    exchange: int = 0,
 ) -> AgentMessage:
     cited = sorted({c for d in drafts for c in d.cited_source_ids})
-    if iteration > 1:
+    if exchange:
+        ids = {d.sub_question_id for d in drafts}
+        notes = sum(len(g.feedback) for g in gaps if g.sub_question_id in ids)
+        text = (f"Quick fix {exchange}: revised {', '.join(sorted(ids))} with your notes on {notes} rejected claim(s), "
+                f"using the same evidence. Verifier, please re-check.")
+    elif iteration > 1:
         ids = {d.sub_question_id for d in drafts}
         notes = sum(len(g.feedback) for g in gaps if g.sub_question_id in ids)
         briefs = sum(i.agent == "drafter" and i.sub_question_id in ids for i in instructions)
@@ -141,8 +147,36 @@ def drafts_handoff(
             line += f" · {len(d.invalid_citations)} citation(s) outside the evidence pool"
         items.append(line)
     return AgentMessage(
-        run_id=run_id, channel="evidence_loop", round=iteration, sender="drafter", to=["verifier"], kind="draft",
-        text=text, items=items, refs=cited[:8],
+        run_id=run_id, channel="evidence_loop", round=iteration, sender="drafter", to=["verifier"],
+        kind="fix" if exchange else "draft", text=text, items=items, refs=cited[:8],
+    )
+
+
+def fix_request(
+    run_id: str,
+    *,
+    metrics: IterationMetrics,
+    targets: Sequence[VerificationGap],
+    exchange: int,
+    max_exchanges: int,
+    grounding_threshold: float,
+) -> AgentMessage:
+    """Verifier -> Drafter inside the round: send rejected claims straight back for a quick fix."""
+    rejected = sum(len(g.unsupported_claims) for g in targets)
+    where = ", ".join(g.sub_question_id for g in targets)
+    standing = (f"the round already clears the bar (grounding {metrics.grounding_rate:.0%} >= {grounding_threshold:.0%}), but"
+                if metrics.grounding_rate >= grounding_threshold
+                else f"grounding is {metrics.grounding_rate:.0%}, below the {grounding_threshold:.0%} bar, and")
+    text = (f"Before I report to the Master Approver: {standing} {rejected} claim(s) in {where} failed verification. "
+            f"Drafter, please fix them from the same evidence. Quick fix {exchange} of at most {max_exchanges}.")
+    items = []
+    for g in targets[:4]:
+        items.append(f"{g.sub_question_id}: {g.reason}")
+        items.extend(f"   {_clip(f, 170)}" for f in g.feedback[:3])
+    return AgentMessage(
+        run_id=run_id, channel="evidence_loop", round=metrics.iteration, sender="verifier", to=["drafter"],
+        kind="fix_request", text=text, items=items, score=metrics.grounding_rate, threshold=grounding_threshold,
+        passed=False, refs=[g.sub_question_id for g in targets],
     )
 
 
@@ -153,7 +187,9 @@ def verdicts_handoff(
     gaps: Sequence[VerificationGap],
     contradictions: Sequence[ContradictionItem],
 ) -> AgentMessage:
-    text = (f"Round {metrics.iteration} report for the Master Approver. Checked {metrics.total_claims} claim(s): "
+    fixes = (f" after {metrics.exchanges} quick fix(es) with the Drafter (grounding {metrics.first_check_grounding:.0%} -> "
+             f"{metrics.grounding_rate:.0%})" if metrics.exchanges and metrics.first_check_grounding is not None else "")
+    text = (f"Round {metrics.iteration} report for the Master Approver{fixes}. Checked {metrics.total_claims} claim(s): "
             f"{metrics.supported} supported, {metrics.unsupported} unsupported, {metrics.contradicted} contradicted. "
             f"Grounding {metrics.grounding_rate:.0%}, coverage {metrics.coverage_score:.0%}.")
     if gaps:

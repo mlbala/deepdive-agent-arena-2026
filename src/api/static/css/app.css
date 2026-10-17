@@ -585,3 +585,4 @@ button.dclaim:hover { border-color: rgb(var(--accent) / .45); background: rgb(va
 #archSvg .room-frame { fill: rgb(var(--green) / .04); stroke: rgb(var(--green) / .38); stroke-width: 1.2; stroke-dasharray: 5 5; }
 #archSvg .room-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; fill: rgb(var(--green-t)); }
 .pgroup-f svg { flex-shrink: 0; width: 13px; height: 13px; }
+.pgroup .pzone-cards { margin-bottom: 24px; }

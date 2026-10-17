@@ -112,7 +112,8 @@ def test_model_raised_high_issue_blocks_only_when_the_rubric_corroborates_it(mak
 
 
 def test_master_approver_cannot_approve_below_the_quality_gate(make_orchestrator):
-    orchestrator, _store, _live = make_orchestrator(client=_EagerApprover(hallucinate_first_draft=True), grounding_threshold=0.9)
+    orchestrator, _store, _live = make_orchestrator(
+        client=_EagerApprover(hallucinate_first_draft=True), grounding_threshold=0.9, group_chat_exchanges=0)
     state = orchestrator.run(SOLAR_Q)
     first, second = state["round_reviews"]
     assert not first.gate_passed and first.floor == "researcher"
@@ -182,7 +183,7 @@ def test_plan_checks_flag_dropped_entities_overlap_and_bad_queries():
 
 def test_group_chat_mirrors_the_real_handoffs_and_instructions_are_used(make_orchestrator):
     simulator = _Recording(hallucinate_first_draft=True)
-    orchestrator, store, live = make_orchestrator(client=simulator, grounding_threshold=0.9)
+    orchestrator, store, live = make_orchestrator(client=simulator, grounding_threshold=0.9, group_chat_exchanges=0)
     state = orchestrator.run(SOLAR_Q)
     chat = state["group_chat"]
     m1, m2 = state["iteration_metrics"]
@@ -220,3 +221,100 @@ def test_runs_recorded_under_earlier_names_still_load():
     assert PlanIssue(problem="old issue", origin="lead").origin == "master"
     assert PlanIssue(problem="older issue", origin="approver").origin == "master"
     assert AgentInstruction(agent="drafter", sub_question_id="SQ-1", instruction="fix it", origin="lead").origin == "master"
+
+
+class _StubbornDrafter(HeuristicMeshSimulator):
+    """Re-adds the fabricated claim even when the Verifier sends it back, so quick fixes cannot help."""
+
+    def _drafter(self, p: dict[str, Any]) -> dict[str, Any]:
+        body = super()._drafter(p)
+        sources = [ev["source_id"] for ev in p.get("evidence", [])]
+        if sources and "2031" not in body["answer"]:
+            body["answer"] += f" Independent analysts expect this figure to double again by 2031 [{sources[0]}]."
+        return body
+
+
+class _QuickFixRecorder(HeuristicMeshSimulator):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.drafter_payloads: list[dict[str, Any]] = []
+
+    def _drafter(self, p: dict[str, Any]) -> dict[str, Any]:
+        self.drafter_payloads.append(p)
+        return super()._drafter(p)
+
+
+def test_verifier_sends_rejected_claims_back_to_the_drafter_inside_the_round(make_orchestrator):
+    simulator = _QuickFixRecorder(hallucinate_first_draft=True)
+    orchestrator, store, live = make_orchestrator(client=simulator, grounding_threshold=0.9)
+    state = orchestrator.run(SOLAR_Q)
+
+    (round1,) = state["iteration_metrics"]
+    assert round1.exchanges == 1, "one quick fix repaired the round without new research"
+    assert round1.first_check_grounding is not None and round1.first_check_grounding < 0.9 <= round1.grounding_rate
+    assert "researcher" not in simulator.calls_by_role, "no refinement research was needed"
+    assert simulator.calls_by_role["verifier.contradictions"] == 1, "the cross-source scan is reused on the re-check"
+
+    room = [(m.sender, m.kind, m.to) for m in state["group_chat"] if m.channel == "evidence_loop"]
+    assert room == [
+        ("researcher", "evidence", ["drafter"]), ("drafter", "draft", ["verifier"]),
+        ("verifier", "fix_request", ["drafter"]), ("drafter", "fix", ["verifier"]),
+        ("verifier", "verdict", ["master"]), ("master", "decision", ["synthesizer"]),
+    ], room
+    fixes = [p for p in simulator.drafter_payloads if "quick_fix" in p]
+    assert fixes and all(p["quick_fix"]["your_previous_draft"] and p["previous_attempt_feedback"]["verifier_notes"] for p in fixes)
+
+    ids = [c.claim_id for c in state["claim_history"]]
+    assert len(ids) == len(set(ids)), "quick-fix claims get their own ids"
+    assert any(".1b." in cid for cid in ids)
+    report = state["final_report"]
+    assert any("2031" in r.text for r in report.removed_claims) and all("2031" not in s.body for s in report.sections)
+    assert report.metrics.quick_fixes == 1 and report.metrics.grounding_rate_pre == round1.first_check_grounding
+    assert report.metrics.total_claims_evaluated == len(state["verification_history"])
+    assert state["round_reviews"][0].exchanges == 1 and state["round_reviews"][0].decision == "approve"
+    assert any(e.event_type is AuditEventType.QUICK_FIX for e in live)
+    assert store.verify_audit_chain(state["run_id"])["valid"]
+
+
+def test_quick_fixes_stop_as_soon_as_they_stop_helping(make_orchestrator):
+    orchestrator, _store, live = make_orchestrator(client=_StubbornDrafter(), grounding_threshold=0.9, max_iterations=1)
+    state = orchestrator.run(SOLAR_Q)
+    (round1,) = state["iteration_metrics"]
+    assert round1.exchanges == 1, "the first fix did not raise grounding, so there is no second one"
+    assert sum(e.event_type is AuditEventType.QUICK_FIX for e in live) == 1
+    assert state["round_reviews"][0].decision == "approve" and not state["round_reviews"][0].gate_passed
+
+
+def test_quick_fix_targets_need_rejected_claims_and_evidence():
+    from src.agents.orchestrator import quick_fix_targets
+    from src.schemas.domain import VerificationGap
+
+    gaps = [VerificationGap(sub_question_id="SQ-1", reason="1 of 3 failed", unsupported_claims=["x"]),
+            VerificationGap(sub_question_id="SQ-2", reason="no evidence", unsupported_claims=["y"]),
+            VerificationGap(sub_question_id="SQ-3", reason="nothing drafted", unsupported_claims=[])]
+    picked = quick_fix_targets(gaps, {"SQ-1": ["c1"], "SQ-2": [], "SQ-3": ["c3"]})
+    assert [g.sub_question_id for g in picked] == ["SQ-1"], "no evidence needs research, which is the Master Approver's call"
+
+
+class _WorseFixDrafter(HeuristicMeshSimulator):
+    """A quick fix that makes the draft worse: it piles on fabricated, cited sentences."""
+
+    def _drafter(self, p: dict[str, Any]) -> dict[str, Any]:
+        body = super()._drafter(p)
+        sources = [ev["source_id"] for ev in p.get("evidence", [])]
+        if "quick_fix" in p and sources:
+            body["answer"] += "".join(f" Analysts project {n} gigawatts of new capacity by 2040 [{sources[0]}]." for n in (900, 1200, 1500))
+        return body
+
+
+def test_a_quick_fix_that_makes_things_worse_is_not_kept(make_orchestrator):
+    orchestrator, _store, live = make_orchestrator(client=_WorseFixDrafter(hallucinate_first_draft=True), grounding_threshold=0.9,
+                                                   max_iterations=1)
+    state = orchestrator.run(SOLAR_Q)
+    (round1,) = state["iteration_metrics"]
+    assert round1.exchanges == 1 and round1.grounding_rate == round1.first_check_grounding, "the earlier version was kept"
+    assert any(e.event_type is AuditEventType.WARNING and "keeping the previous version" in e.message for e in live)
+    current = [c.claim_id for cl in state["claims"].values() for c in cl]
+    assert current and not any(".1b." in cid for cid in current), "the worse attempt is not what gets published"
+    assert any(".1b." in c.claim_id for c in state["claim_history"]), "but it stays in the audit history"
+    assert all("2040" not in s.body for s in state["final_report"].sections)

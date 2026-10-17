@@ -145,9 +145,9 @@ async function renderTimeline(el) {
   }
   for (const m of tl.markers) {
     const mx = x(m.t_ms);
-    const color = m.type === 'loop_back' ? 'rgb(var(--orange))' : m.type === 'guardrail_blocked' || m.type === 'run_failed' || m.type === 'run_blocked' ? 'rgb(var(--red))' : m.type === 'run_completed' ? 'rgb(var(--green))' : 'rgb(var(--purple))';
-    const label = { loop_back: 'loop-back', route_decision: m.route === 'researcher' ? 'decide: loop' : 'decide: publish', run_completed: 'published', guardrail_blocked: 'blocked', budget_guard: 'budget guard', run_blocked: 'blocked', run_failed: 'failed' }[m.type] || m.type;
-    if (m.type === 'route_decision' || m.type === 'loop_back' || m.type === 'run_completed' || m.type === 'guardrail_blocked') {
+    const color = m.type === 'loop_back' || m.type === 'quick_fix' ? 'rgb(var(--orange))' : m.type === 'guardrail_blocked' || m.type === 'run_failed' || m.type === 'run_blocked' ? 'rgb(var(--red))' : m.type === 'run_completed' ? 'rgb(var(--green))' : 'rgb(var(--purple))';
+    const label = { quick_fix: 'quick fix', loop_back: 'loop-back', route_decision: m.route === 'researcher' ? 'decide: loop' : 'decide: publish', run_completed: 'published', guardrail_blocked: 'blocked', budget_guard: 'budget guard', run_blocked: 'blocked', run_failed: 'failed' }[m.type] || m.type;
+    if (m.type === 'route_decision' || m.type === 'loop_back' || m.type === 'quick_fix' || m.type === 'run_completed' || m.type === 'guardrail_blocked') {
       svg += `<line x1="${mx}" x2="${mx}" y1="${T - 8}" y2="${H - 22}" style="stroke:${color};stroke-width:1.25;stroke-dasharray:4 3" data-tip="${esc([label, m.message, `at ${ms(m.t_ms)}`].join('\n'))}"/>`;
       const nearEdge = mx > W - R - 70;
       if (m.type !== 'route_decision') svg += `<text x="${nearEdge ? mx - 4 : mx + 4}" y="${T - 12}" text-anchor="${nearEdge ? 'end' : 'start'}" style="fill:${color};font-size:10.5px;font-weight:600">${esc(label)}</text>`;

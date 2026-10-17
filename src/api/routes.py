@@ -411,7 +411,7 @@ async def run_report_pdf(run_id: str, request: Request) -> Response:
         claims=svc.store.list_claims(run_id),
         trace_summary=svc.store.trace_summary(run_id),
         chat=[e["payload"] for e in events if e["event_type"] == "agent_message"],
-        iterations=[e["payload"] for e in events if e["event_type"] == "metrics_computed"],
+        iterations=[e["payload"] for e in events if e["event_type"] == "metrics_computed" and e["payload"].get("final", True)],
         chain=svc.store.verify_audit_chain(run_id),
     )
     return Response(

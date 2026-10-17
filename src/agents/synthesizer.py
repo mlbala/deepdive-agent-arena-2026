@@ -302,7 +302,9 @@ class SynthesizerAgent(BaseAgent):
         usage = self.gateway.usage_for(run_id)
 
         metrics = ReportMetrics(
-            grounding_rate_pre=first.grounding_rate if first else 0.0,
+            # "first draft" = the round's first check, before any Verifier -> Drafter quick fix
+            grounding_rate_pre=(first.first_check_grounding if first.first_check_grounding is not None else first.grounding_rate)
+            if first else 0.0,
             grounding_rate_final=last.grounding_rate if last else 0.0,
             coverage_score=last.coverage_score if last else 0.0,
             citation_precision=last.citation_precision if last else 0.0,
@@ -310,7 +312,7 @@ class SynthesizerAgent(BaseAgent):
             report_citation_coverage=round(cited_sentences / len(report_sentences), 4) if report_sentences else 0.0,
             iterations=len(iteration_metrics),
             loop_backs=max(0, len(iteration_metrics) - 1),
-            total_claims_evaluated=sum(m.total_claims for m in iteration_metrics),
+            total_claims_evaluated=len(verification_history) if verification_history else sum(m.total_claims for m in iteration_metrics),
             claims_in_report=sum(len(v) for v in verified.values()),
             claims_removed=len(removed),
             contradictions=len(contradictions),

@@ -120,6 +120,7 @@ class AuditEventType(StrEnum):
     PLAN_CREATED = "plan_created"
     PLAN_REVIEWED = "plan_reviewed"
     ROUND_REVIEWED = "round_reviewed"
+    QUICK_FIX = "quick_fix"
     AGENT_MESSAGE = "agent_message"
     SEARCH_EXECUTED = "search_executed"
     SOURCE_INDEXED = "source_indexed"
@@ -280,6 +281,7 @@ class RawSearchResult(_Model):
 class DraftSection(_Model):
     sub_question_id: str
     iteration: int = Field(ge=1)
+    attempt: int = Field(default=1, ge=1)  # 1 = the round's first draft; 2+ = a quick fix asked for by the Verifier
     text: str
     cited_source_ids: list[str] = Field(default_factory=list)
     invalid_citations: list[str] = Field(default_factory=list)
@@ -350,6 +352,9 @@ class IterationMetrics(_Model):
     quote_verification_rate: float
     sources_indexed: int
     target_sub_question_ids: list[str] = Field(default_factory=list)
+    exchanges: int = 0  # Verifier -> Drafter quick fixes in this round before its report
+    first_check_grounding: float | None = None  # grounding on the round's first check, before quick fixes
+    first_check_coverage: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +422,7 @@ class RoundReview(_Model):
     coverage_score: float = 0.0
     grounding_threshold: float = 0.0
     coverage_threshold: float = 0.0
+    exchanges: int = 0  # Verifier -> Drafter quick fixes inside the round before it was reported
     extra_round: bool = False  # the gate passed but the Master Approver asked for one more targeted pass
     overruled: bool = False  # the Master Approver wanted to approve below the bar; the gate kept the loop going
     llm_reviewed: bool = False
@@ -431,7 +437,8 @@ class AgentMessage(_Model):
     round: int = Field(default=1, ge=1)
     sender: str
     to: list[str] = Field(default_factory=list)
-    kind: Literal["proposal", "critique", "revision", "approval", "evidence", "draft", "verdict", "decision", "report"]
+    kind: Literal["proposal", "critique", "revision", "approval", "evidence", "draft", "verdict", "decision", "report",
+                  "fix_request", "fix"]
     text: str
     items: list[str] = Field(default_factory=list)
     score: float | None = None
@@ -507,6 +514,7 @@ class ReportMetrics(_Model):
     llm_latency_ms: int = 0
     plan_rounds: int = 0
     plan_score: float = 0.0
+    quick_fixes: int = 0
 
 
 class FinalReport(_Model):

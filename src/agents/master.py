@@ -367,7 +367,7 @@ class MasterApproverAgent(BaseAgent):
             target_sub_question_ids=targets, instructions=instructions,
             grounding_rate=metrics.grounding_rate, coverage_score=metrics.coverage_score,
             grounding_threshold=self.settings.grounding_threshold, coverage_threshold=self.settings.coverage_threshold,
-            extra_round=extra, overruled=overruled, llm_reviewed=output is not None,
+            exchanges=metrics.exchanges, extra_round=extra, overruled=overruled, llm_reviewed=output is not None,
         )
         if collector is not None:
             collector.emit(

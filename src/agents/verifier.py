@@ -232,6 +232,11 @@ class VerificationOutcome:
     verifications: dict[str, list[VerificationResult]] = field(default_factory=dict)
 
 
+def _attempt_suffix(attempt: int) -> str:
+    """CLM-2.1.3 for a round's first draft, CLM-2.1b.3 for its first quick fix, so claim ids never collide."""
+    return "" if attempt <= 1 else chr(ord("a") + attempt - 1)
+
+
 class VerifierAgent(BaseAgent):
     name = "verifier"
 
@@ -278,7 +283,7 @@ class VerifierAgent(BaseAgent):
             seen.add(key)
             claims.append(
                 AtomicClaim(
-                    claim_id=f"CLM-{sq_num}.{draft.iteration}.{len(claims) + 1}",
+                    claim_id=f"CLM-{sq_num}.{draft.iteration}{_attempt_suffix(draft.attempt)}.{len(claims) + 1}",
                     sub_question_id=sub_question.id,
                     iteration=draft.iteration,
                     text=text,
@@ -481,7 +486,14 @@ class VerifierAgent(BaseAgent):
         claims: dict[str, list[AtomicClaim]],
         verifications: dict[str, list[VerificationResult]],
         collector: EventCollector,
+        reuse_cross_source: list[ContradictionItem] | None = None,
     ) -> list[ContradictionItem]:
+        """Cross-source conflicts (one LLM scan of the evidence pool) plus conflicts between drafted claims
+        and their cited sources. `reuse_cross_source` skips the scan when the evidence has not changed
+        (a quick fix inside a round re-drafts, it does not re-research)."""
+        if reuse_cross_source is not None:
+            reused = [c for c in reuse_cross_source if c.origin == "cross_source"]
+            return reused + self._claim_contradictions(claims, verifications, len(reused), collector)
         items: list[ContradictionItem] = []
         pool: list[tuple[str, EvidenceChunk]] = []
         seen_chunks: set[str] = set()
@@ -557,6 +569,22 @@ class VerifierAgent(BaseAgent):
                     )
                 )
 
+        for item in items:
+            collector.emit(
+                AuditEventType.CONTRADICTION_DETECTED,
+                f"{item.contradiction_id} [{item.severity.value}] {item.source_a} vs {item.source_b}: {item.topic}",
+                **item.model_dump(mode="json"),
+            )
+        return items + self._claim_contradictions(claims, verifications, len(items), collector)
+
+    @staticmethod
+    def _claim_contradictions(
+        claims: dict[str, list[AtomicClaim]],
+        verifications: dict[str, list[VerificationResult]],
+        offset: int,
+        collector: EventCollector,
+    ) -> list[ContradictionItem]:
+        items: list[ContradictionItem] = []
         claim_lookup = {c.claim_id: c for cl in claims.values() for c in cl}
         for results in verifications.values():
             for v in results:
@@ -567,7 +595,7 @@ class VerifierAgent(BaseAgent):
                     continue
                 items.append(
                     ContradictionItem(
-                        contradiction_id=f"CTR-{len(items) + 1}",
+                        contradiction_id=f"CTR-{offset + len(items) + 1}",
                         topic=f"Draft claim {claim.claim_id} contradicted by its cited source",
                         sub_question_id=claim.sub_question_id,
                         statement_a=claim.text,

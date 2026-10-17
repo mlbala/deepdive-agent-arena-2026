@@ -182,7 +182,9 @@ def score_question(
         "run_id": state["run_id"],
         "iterations": len(history),
         "loop_backs": max(0, len(history) - 1),
-        "claim_groundedness_pre": history[0].grounding_rate if history else None,
+        "claim_groundedness_pre": (history[0].first_check_grounding if history[0].first_check_grounding is not None
+                                   else history[0].grounding_rate) if history else None,
+        "quick_fixes": sum(m.exchanges for m in history),
         "grounding_final_iteration": history[-1].grounding_rate if history else None,
         "coverage_pre": history[0].coverage_score if history else None,
         "coverage_final": m.coverage_score,

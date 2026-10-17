@@ -1,7 +1,7 @@
 # CLAUDE.md — DeepDive engineering standards
 
 DeepDive (Agent Arena 2026, Track 01) is a self-verifying multi-agent research system:
-Planner ⇄ Master Approver (plan review) → Researcher → Drafter → Verifier → Master Approver (round review:
+Planner ⇄ Master Approver (plan review) → Researcher → Drafter ⇄ Verifier (quick fixes) → Master Approver (round review:
 another round | Synthesizer), plus a FollowUp agent, wired as a LangGraph `StateGraph` (supervisor pattern) and
 served by FastAPI. Every node posts its real hand-off to the agents' group chat (`AGENT_MESSAGE` audit events).
 

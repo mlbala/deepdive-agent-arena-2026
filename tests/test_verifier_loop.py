@@ -254,7 +254,8 @@ def test_route_verification(coverage, grounding, iteration, targets, expected):
 # ---------------------------------------------------------------------------
 def test_loop_back_repairs_hallucinated_draft(make_orchestrator):
     simulator = HeuristicMeshSimulator(hallucinate_first_draft=True)
-    orchestrator, store, _live = make_orchestrator(client=simulator, grounding_threshold=0.9)
+    # quick fixes off: this test exercises the research loop-back, not the in-round Verifier -> Drafter fix
+    orchestrator, store, _live = make_orchestrator(client=simulator, grounding_threshold=0.9, group_chat_exchanges=0)
     state = orchestrator.run("How much solar PV capacity was added globally in 2023?")
 
     history = state["iteration_metrics"]

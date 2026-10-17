@@ -62,6 +62,7 @@ const EDGES = [
   { id: 'res_index', d: 'M720,221 L740,221', label: 'sources', lx: 730, ly: 177 },
   { id: 'index_drafter', d: 'M890,221 L910,221', label: 'evidence', lx: 900, ly: 177 },
   { id: 'drafter_ver', d: 'M1055,221 L1075,221', label: 'drafts', lx: 1065, ly: 177 },
+  { id: 'ver_drafter', d: 'M1112,252 C1112,272 1018,272 1018,254', label: 'quick fix', lx: 1065, ly: 271, kind: 'loop' },
   { id: 'ver_master', d: 'M1150,190 C1150,110 1000,65 860,65', label: 'round report', lx: 1118, ly: 120 },
   { id: 'master_synth', d: 'M860,44 L1200,44 Q1234,44 1234,78 L1234,471 Q1234,505 1222,505', label: 'approved', lx: 1228, ly: 430, anchor: 'end' },
   { id: 'synth_output', d: 'M1060,505 L1030,505', label: 'report', lx: 1045, ly: 556 },
@@ -95,7 +96,7 @@ const INFO = {
   researcher: { what: 'Runs queries in parallel through the 3-tier retriever and deduplicates by URL and content hash. Each page is scored for authority, sanitised by the content shield and chunked into exact spans. Evidence is then ranked by authority for each sub-question. On a loop-back it first asks Mesh for refinement queries aimed at the gaps.', io: 'sub-questions (+ gaps) → SourceDocument[], EvidenceChunk[]', checks: ['Content shield: injected sentences neutralised, hidden text stripped', 'URL shield: no private IPs, metadata hosts or unsafe redirects', 'Tier 1/2/3 authority scoring; poisoned sources score lower'], code: 'src/agents/researcher.py · src/tools/web_search.py' },
   index: { what: 'Hybrid retrieval: BM25 plus ChromaDB with Mesh embeddings, merged by reciprocal-rank fusion. Every chunk keeps its exact [char_start, char_end) offsets in the source, so any quote can be traced back.', io: 'chunks → ranked evidence spans', checks: ['Drops to sparse-only retrieval if embeddings fail', 'Spans rehydrate from SQLite for follow-ups'], code: 'src/storage/vector_store.py' },
   drafter: { what: 'Writes 80–220 words per sub-question using only the evidence provided. Every factual sentence must end with [SRC-XXX] citations.', io: 'sub-question + evidence → DraftSection', checks: ['Citations outside the evidence pool are flagged', 'Evidence is treated as untrusted data, never as instructions'], code: 'src/agents/drafter.py' },
-  verifier: { what: 'Splits drafts into atomic claims and checks each one against the spans of its cited sources only. Deterministic guards follow: the quote must be found in the source, the source must be one the claim cites, figures must appear in the source, and the source must clear the admissibility floor. A contradiction radar compares sources against each other.', io: 'drafts → AtomicClaim[], VerificationResult[], ContradictionItem[]', checks: ['Quote matching: exact → normalised → elliptical → fuzzy, with numbers locked', 'Claims citing sources below the authority floor are downgraded', 'Both sides of a contradiction must be quoted verbatim'], code: 'src/agents/verifier.py' },
+  verifier: { what: 'Splits drafts into atomic claims and checks each one against the spans of its cited sources only. Deterministic guards follow: the quote must be found in the source, the source must be one the claim cites, figures must appear in the source, and the source must clear the admissibility floor. A contradiction radar compares sources against each other. Inside the group chat it can send rejected claims straight back to the Drafter for a quick fix (at most twice per round, only while it helps) before the round report goes to the Master Approver.', io: 'drafts → AtomicClaim[], VerificationResult[], ContradictionItem[]', checks: ['Quote matching: exact → normalised → elliptical → fuzzy, with numbers locked', 'Claims citing sources below the authority floor are downgraded', 'Both sides of a contradiction must be quoted verbatim'], code: 'src/agents/verifier.py' },
   synthesizer: { what: 'Sees only SUPPORTED claims. A claim whose source is outranked by a contradicting source is withheld, and a citation guard drops any sentence that cites sources outside the verified set.', io: 'verified claims → FinalReport', checks: ['Authority-weighted contradiction resolution', 'Removed claims are kept in the audit record'], code: 'src/agents/synthesizer.py' },
   output_guard: { what: 'Redacts PII and secrets from everything that gets published. It also attaches the governance summary (findings, budget use, models, audit-chain head) and the disclosure.', io: 'FinalReport → published FinalReport', checks: ['Secrets always redacted', 'PII redacted by policy'], code: 'src/guardrails/shields.py · OutputGuard' },
   report: { what: 'The published executive report: claim matrix, contradiction radar, sources, governance section and a PDF with the full audit appendix.', io: 'report → UI · PDF · API', checks: ['Every sentence has verified citations or states that evidence is missing'], code: 'src/tools/pdf_exporter.py' },
@@ -131,9 +132,10 @@ function stepOf(item) {
     case 'search_executed': s.edge = 'web_res'; s.color = 'rgb(var(--cyan))'; break;
     case 'source_indexed': s.edge = p.retrieval_tier === 'uploaded_document' ? 'docs_res' : 'res_index'; if (p.retrieval_tier === 'uploaded_document') s.extraEdge = 'res_index'; break;
     case 'node_started':
-      s.edge = { planner: item.iteration > 1 ? 'master_planner' : 'guard_planner', master: p.mode === 'round' ? 'ver_master' : 'planner_master', approver: 'planner_master', researcher: 'master_res', drafter: 'index_drafter', verifier: 'drafter_ver', synthesizer: 'master_synth', output_guard: 'synth_output' }[node] || undefined;
+      s.edge = { planner: item.iteration > 1 ? 'master_planner' : 'guard_planner', master: p.mode === 'round' ? 'ver_master' : 'planner_master', approver: 'planner_master', researcher: 'master_res', drafter: p.exchange ? 'ver_drafter' : 'index_drafter', verifier: 'drafter_ver', synthesizer: 'master_synth', output_guard: 'synth_output' }[node] || undefined;
       s.text = `${NODE[node]?.label || node} started${item.iteration > 1 ? ` (iteration ${item.iteration})` : ''} — ${item.message}`; break;
     case 'draft_created': s.edge = 'drafter_ver'; break;
+    case 'quick_fix': s.node = 'verifier'; s.edge = 'ver_drafter'; s.color = 'rgb(var(--orange))'; s.tone = 'loop'; s.dur = 900; s.text = `Quick fix ${p.exchange}: the Verifier sends ${(p.targets || []).join(', ')} back to the Drafter`; break;
     case 'claim_verified': s.color = p.verdict === 'SUPPORTED' ? 'rgb(var(--green))' : p.verdict === 'CONTRADICTED' ? 'rgb(var(--red))' : 'rgb(var(--orange))'; s.tone = p.verdict === 'SUPPORTED' ? 'ok' : 'warn'; break;
     case 'claim_downgraded': s.tone = 'warn'; break;
     case 'contradiction_detected': s.tone = 'danger'; break;
@@ -162,7 +164,7 @@ function reduce(k) {
   const S = {
     nodes: Object.fromEntries(NODES.map((n) => [n.id, { status: 'idle', visits: 0, findings: 0 }])),
     edges: Object.fromEntries(EDGES.map((e) => [e.id, { visited: false, label: null }])),
-    c: { subq: 0, searches: 0, tiers: {}, sources: 0, uploads: 0, spans: 0, drafts: 0, invalid: 0, claims: 0, supported: 0, contradicted: 0, unsupported: 0, downgraded: 0, ctr: 0, removed: 0, loops: 0, kept: null, redactions: 0, findings: 0, injections: 0, urlsBlocked: 0, calls: 0, tokens: 0, byAgent: {}, events: 0, followups: 0 },
+    c: { fixes: 0, subq: 0, searches: 0, tiers: {}, sources: 0, uploads: 0, spans: 0, drafts: 0, invalid: 0, claims: 0, supported: 0, contradicted: 0, unsupported: 0, downgraded: 0, ctr: 0, removed: 0, loops: 0, kept: null, redactions: 0, findings: 0, injections: 0, urlsBlocked: 0, calls: 0, tokens: 0, byAgent: {}, events: 0, followups: 0 },
     routes: [], reviews: [], rounds: [], subQuestions: [], status: 'idle', blocked: null, query: '', inputStatus: null, llmScreen: null, budget: null, lastMetrics: null,
   };
   const c = S.c;
@@ -211,6 +213,7 @@ function reduce(k) {
         S.edges.res_index.label = `${c.sources} sources`; break;
       case 'refinement_planned': S.edges.web_res.label = `refine: ${(p.queries || []).length} queries`; break;
       case 'draft_created': c.drafts++; S.edges.drafter_ver.label = `${c.drafts} drafts`; break;
+      case 'quick_fix': c.fixes++; S.edges.ver_drafter.label = `quick fix ×${c.fixes}`; break;
       case 'citation_invalid': c.invalid += (p.invalid_citations || []).length; break;
       case 'claims_extracted': S.edges.index_drafter.label = 'evidence spans'; break;
       case 'claim_verified':
@@ -499,7 +502,7 @@ function liveStatsHtml(id, S) {
     case 'web': row('searches', c.searches); row('URLs refused', c.urlsBlocked); break;
     case 'docs': row('uploads used', c.uploads); break;
     case 'drafter': row('drafts', c.drafts); row('invalid citations', c.invalid); break;
-    case 'verifier': row('claims checked', c.claims); row('supported', `<span class="text-emerald-300">${c.supported}</span>`); row('unsupported', `<span class="text-amber-300">${c.unsupported}</span>`); row('contradicted', `<span class="text-rose-300">${c.contradicted}</span>`); row('downgraded by guards', c.downgraded); row('contradictions', c.ctr); break;
+    case 'verifier': row('quick fixes with the Drafter', c.fixes); row('claims checked', c.claims); row('supported', `<span class="text-emerald-300">${c.supported}</span>`); row('unsupported', `<span class="text-amber-300">${c.unsupported}</span>`); row('contradicted', `<span class="text-rose-300">${c.contradicted}</span>`); row('downgraded by guards', c.downgraded); row('contradictions', c.ctr); break;
     case 'synthesizer': row('claims kept', c.kept ?? '—'); row('claims removed', c.removed); break;
     case 'output_guard': row('redactions', c.redactions); row('guardrail findings (run)', c.findings); break;
     case 'report': row('status', esc(S.status)); break;

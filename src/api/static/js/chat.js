@@ -29,6 +29,8 @@ function kindPill(m) {
   const again = (m.to || []).includes('researcher');
   if (m.kind === 'approval') return m.passed ? ['Plan approved', 'good'] : ['Plan approved with open issues', 'warn'];
   if (m.kind === 'critique') return ['Changes requested', 'warn'];
+  if (m.kind === 'fix_request') return ['Fix request', 'warn'];
+  if (m.kind === 'fix') return ['Quick fix', ''];
   if (m.kind === 'decision' && m.sender === 'master') return again ? (m.passed ? ['Extra pass', 'warn'] : ['Another round', 'warn']) : m.passed ? ['Approved for synthesis', 'good'] : ['Approved with gaps', 'warn'];
   if (m.kind === 'decision' && m.sender === 'quality_gate') return m.passed ? ['Quality bar met', 'good'] : again ? ['Loop back', 'warn'] : ['Publish with gaps', 'warn'];
   if (m.kind === 'decision') return ['Published', 'good'];

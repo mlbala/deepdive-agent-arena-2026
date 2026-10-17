@@ -7,7 +7,7 @@
                  |                  ^  |
                  +------plan--------+  | dispatch / another round
                                     |  v
-                                    |  researcher -> drafter -> verifier
+                                    |  researcher -> drafter <-> verifier   (quick fixes inside the round)
                                     +------------ round report ------+      (evidence group chat)
 
 The Master Approver (`master`) is the hub. It reviews every version of the plan (Mesh rubric +
@@ -68,6 +68,7 @@ from src.schemas.domain import (
     GuardrailFinding,
     GuardrailSeverity,
     RunStatus,
+    VerificationGap,
     new_run_id,
 )
 from src.schemas.state import ResearchState, initial_state
@@ -106,6 +107,17 @@ def route_verification(
 def route_after_guard(state: ResearchState) -> Literal["planner", "__end__"]:
     """Conditional edge: a blocked question never reaches the research agents."""
     return "__end__" if state.get("blocked") else "planner"
+
+
+def quick_fix_targets(gaps: Sequence[VerificationGap], evidence_by_sq: dict[str, list[str]]) -> list[VerificationGap]:
+    """Gaps a quick fix can repair: claims were rejected and the sub-question has evidence to fix them from.
+    A sub-question without evidence needs new research, which is the Master Approver's call, not the Drafter's."""
+    return [g for g in gaps if g.unsupported_claims and evidence_by_sq.get(g.sub_question_id)]
+
+
+def route_group(state: ResearchState) -> Literal["drafter", "master"]:
+    """Conditional edge inside the group chat: a quick fix back to the Drafter, or the round report to the Master."""
+    return "drafter" if state.get("group_next") == "drafter" else "master"
 
 
 def route_master(state: ResearchState) -> Literal["planner", "researcher", "synthesizer"]:
@@ -175,7 +187,7 @@ class ResearchOrchestrator:
         )
         graph.add_edge("researcher", "drafter")
         graph.add_edge("drafter", "verifier")
-        graph.add_edge("verifier", "master")
+        graph.add_conditional_edges("verifier", route_group, {"drafter": "drafter", "master": "master"})
         graph.add_edge("synthesizer", "output_guard")
         graph.add_edge("output_guard", END)
         return graph.compile()
@@ -455,15 +467,25 @@ class ResearchOrchestrator:
             "evidence": result.evidence,
             "evidence_by_sq": result.evidence_by_sq,
             "refinement_queries": result.refinement_queries,
+            "exchange": 0,
+            "group_next": "",
+            "round_first_check": None,
             "group_chat": [message],
             "audit_log": col.events,
         }
 
     def drafter_node(self, state: ResearchState) -> dict[str, Any]:
         iteration = state["iteration_count"]
+        exchange = state.get("exchange", 0)
         col = self._collector(state, "drafter")
         targets = [sq for sq in state["sub_questions"] if sq.id in set(state["target_sub_question_ids"])]
-        col.emit(AuditEventType.NODE_STARTED, f"Drafter writing {len(targets)} cited section(s)")
+        col.emit(
+            AuditEventType.NODE_STARTED,
+            f"Drafter quick fix {exchange}: revising {len(targets)} section(s) the Verifier sent back" if exchange
+            else f"Drafter writing {len(targets)} cited section(s)",
+            exchange=exchange,
+        )
+        previous = state.get("drafts", {})
         gaps = {g.sub_question_id: g for g in state.get("verification_gaps", [])}
         evidence = state.get("evidence", {})
         briefs = self._instructions_for(state, "drafter")
@@ -477,25 +499,33 @@ class ResearchOrchestrator:
                 evidence=chunks,
                 sources=state.get("sources", {}),
                 iteration=iteration,
-                gap=gaps.get(sq.id) if iteration > 1 else None,
+                gap=gaps.get(sq.id) if iteration > 1 or exchange else None,
                 collector=col,
                 instructions=briefs.get(sq.id) if iteration > 1 else None,
+                attempt=exchange + 1,
+                previous_draft=previous[sq.id].text if exchange and sq.id in previous else None,
             )
 
         drafts = self.drafter._parallel(draft, targets)
         message = self._post(col, chat.drafts_handoff(
             state["run_id"], iteration=iteration, drafts=drafts, gaps=state.get("verification_gaps", []),
-            instructions=state.get("master_instructions", []) if iteration > 1 else [],
+            instructions=state.get("master_instructions", []) if iteration > 1 else [], exchange=exchange,
         ))
-        col.emit(AuditEventType.NODE_COMPLETED, f"Drafter produced {len(drafts)} section(s)")
+        col.emit(AuditEventType.NODE_COMPLETED, f"Drafter produced {len(drafts)} section(s)", exchange=exchange)
         return {"drafts": {d.sub_question_id: d for d in drafts}, "group_chat": [message], "audit_log": col.events}
 
     def verifier_node(self, state: ResearchState) -> dict[str, Any]:
         iteration = state["iteration_count"]
+        exchange = state.get("exchange", 0)
         col = self._collector(state, "verifier")
         targets = set(state["target_sub_question_ids"])
         drafts = [d for sq_id, d in state["drafts"].items() if sq_id in targets]
-        col.emit(AuditEventType.NODE_STARTED, f"Verifier checking {len(drafts)} draft section(s)")
+        col.emit(
+            AuditEventType.NODE_STARTED,
+            f"Verifier re-checking {len(drafts)} section(s) after quick fix {exchange}" if exchange
+            else f"Verifier checking {len(drafts)} draft section(s)",
+            exchange=exchange,
+        )
         sources = state.get("sources", {})
 
         outcome = self.verifier.verify_sections(
@@ -515,6 +545,8 @@ class ResearchOrchestrator:
             claims=claims,
             verifications=verifications,
             collector=col,
+            # a quick fix re-drafts from the same evidence, so the cross-source scan cannot change
+            reuse_cross_source=state.get("contradictions", []) if exchange else None,
         )
         metrics, gaps = self.verifier.compute_metrics(
             iteration=iteration,
@@ -524,27 +556,90 @@ class ResearchOrchestrator:
             sources_indexed=len(sources),
             grounding_threshold=self.settings.grounding_threshold,
         )
+        kept_claims, kept_verifications = outcome.claims, outcome.verifications
+        previous_grounding = state.get("grounding_rate", 0.0)
+        if exchange and metrics.grounding_rate < previous_grounding:
+            # the quick fix made things worse: keep the previous version (the attempt stays in the audit history)
+            kept_claims = {sq: state["claims"][sq] for sq in outcome.claims if sq in state.get("claims", {})}
+            kept_verifications = {sq: state["verifications"][sq] for sq in outcome.verifications if sq in state.get("verifications", {})}
+            claims = {**claims, **kept_claims}
+            verifications = {**verifications, **kept_verifications}
+            contradictions = state.get("contradictions", [])
+            col.emit(
+                AuditEventType.WARNING,
+                f"Quick fix {exchange} lowered grounding ({metrics.grounding_rate:.0%} < {previous_grounding:.0%}); "
+                f"keeping the previous version of {', '.join(sorted(kept_claims))}",
+                exchange=exchange, reverted=sorted(kept_claims),
+            )
+            metrics, gaps = self.verifier.compute_metrics(
+                iteration=iteration,
+                sub_questions=state["sub_questions"],
+                claims=claims,
+                verifications=verifications,
+                sources_indexed=len(sources),
+                grounding_threshold=self.settings.grounding_threshold,
+            )
+        first = state.get("round_first_check") if exchange else metrics
+        fixable = quick_fix_targets(gaps, state.get("evidence_by_sq", {}))
+        progressed = exchange == 0 or metrics.grounding_rate > previous_grounding
+        quick_fix = (
+            bool(fixable)
+            and exchange < self.settings.group_chat_exchanges
+            and progressed
+            and not self.gateway.budget_status(state["run_id"])["soft_limit_reached"]
+        )
         col.emit(
             AuditEventType.METRICS_COMPUTED,
-            f"Iteration {iteration}: grounding {metrics.grounding_rate:.0%}, coverage {metrics.coverage_score:.0%}, "
-            f"citation precision {metrics.citation_precision:.0%}",
-            **metrics.model_dump(),
+            f"Round {iteration}{f' quick fix {exchange}' if exchange else ''}: grounding {metrics.grounding_rate:.0%}, "
+            f"coverage {metrics.coverage_score:.0%}, citation precision {metrics.citation_precision:.0%}",
+            **metrics.model_dump(), exchange=exchange, final=not quick_fix,
         )
-        message = self._post(col, chat.verdicts_handoff(
-            state["run_id"], metrics=metrics, gaps=gaps, contradictions=contradictions
-        ))
-        col.emit(AuditEventType.NODE_COMPLETED, f"Verifier finished round {iteration}: report sent to the Master Approver")
-        return {
-            "claims": outcome.claims,
-            "verifications": outcome.verifications,
+        common: dict[str, Any] = {
+            "claims": kept_claims,
+            "verifications": kept_verifications,
             "contradictions": contradictions,
             "verification_gaps": gaps,
-            "target_sub_question_ids": metrics.target_sub_question_ids,
             "coverage_score": metrics.coverage_score,
             "grounding_rate": metrics.grounding_rate,
-            "iteration_metrics": [metrics],
             "claim_history": [c for cl in outcome.claims.values() for c in cl],
             "verification_history": [v for vs in outcome.verifications.values() for v in vs],
+        }
+        if quick_fix:
+            nxt = exchange + 1
+            col.emit(
+                AuditEventType.QUICK_FIX,
+                f"Quick fix {nxt}: {len(fixable)} section(s) sent back to the Drafter before the round report",
+                exchange=nxt, targets=[g.sub_question_id for g in fixable], gaps=[g.model_dump() for g in fixable],
+                grounding_rate=metrics.grounding_rate,
+            )
+            message = self._post(col, chat.fix_request(
+                state["run_id"], metrics=metrics, targets=fixable, exchange=nxt,
+                max_exchanges=self.settings.group_chat_exchanges, grounding_threshold=self.settings.grounding_threshold,
+            ))
+            col.emit(AuditEventType.NODE_COMPLETED, f"Verifier sent {len(fixable)} section(s) back to the Drafter", exchange=exchange)
+            return {
+                **common,
+                "target_sub_question_ids": [g.sub_question_id for g in fixable],
+                "exchange": nxt,
+                "group_next": "drafter",
+                "round_first_check": first,
+                "group_chat": [message],
+                "audit_log": col.events,
+            }
+        final = metrics.model_copy(update={
+            "exchanges": exchange,
+            "first_check_grounding": first.grounding_rate if first else metrics.grounding_rate,
+            "first_check_coverage": first.coverage_score if first else metrics.coverage_score,
+        })
+        message = self._post(col, chat.verdicts_handoff(
+            state["run_id"], metrics=final, gaps=gaps, contradictions=contradictions
+        ))
+        col.emit(AuditEventType.NODE_COMPLETED, f"Verifier finished round {iteration}: report sent to the Master Approver", exchange=exchange)
+        return {
+            **common,
+            "target_sub_question_ids": metrics.target_sub_question_ids,
+            "iteration_metrics": [final],
+            "group_next": "master",
             "group_chat": [message],
             "audit_log": col.events,
         }
@@ -577,6 +672,7 @@ class ResearchOrchestrator:
         report = report.model_copy(update={
             "metrics": report.metrics.model_copy(update={
                 "plan_rounds": len(reviews), "plan_score": reviews[-1].score if reviews else 0.0,
+                "quick_fixes": sum(m.exchanges for m in state.get("iteration_metrics", [])),
             }),
             "plan_reviews": reviews,
             "round_reviews": state.get("round_reviews", []),
@@ -714,7 +810,8 @@ class ResearchOrchestrator:
             current: dict[str, Any] = dict(state)
             for chunk in self.graph.stream(
                 state,
-                config={"recursion_limit": 10 + 5 * iterations + 2 * (self.settings.max_plan_revisions + 1)},
+                config={"recursion_limit": 10 + (5 + 2 * self.settings.group_chat_exchanges) * iterations
+                        + 2 * (self.settings.max_plan_revisions + 1)},
                 stream_mode=["updates", "values"],
             ):
                 mode, payload = chunk

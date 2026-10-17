@@ -51,12 +51,15 @@ class DrafterAgent(BaseAgent):
         gap: VerificationGap | None,
         collector: EventCollector,
         instructions: list[str] | None = None,
+        attempt: int = 1,
+        previous_draft: str | None = None,
     ) -> DraftSection:
         allowed = {c.source_id for c in evidence}
         if not evidence:
             section = DraftSection(
                 sub_question_id=sub_question.id,
                 iteration=iteration,
+                attempt=attempt,
                 text=f"The available evidence does not establish an answer to: {sub_question.question}",
             )
             collector.emit(
@@ -84,6 +87,12 @@ class DrafterAgent(BaseAgent):
 
         if instructions:
             payload["master_instructions"] = instructions[:3]
+        if previous_draft and attempt > 1:
+            payload["quick_fix"] = {
+                "your_previous_draft": previous_draft,
+                "instruction": "The Verifier sent this draft back. Keep every sentence it accepted, and fix or drop each "
+                "rejected claim using only the same evidence.",
+            }
         output = self._llm(
             run_id,
             SYSTEM_PROMPT,
@@ -95,6 +104,7 @@ class DrafterAgent(BaseAgent):
         section = DraftSection(
             sub_question_id=sub_question.id,
             iteration=iteration,
+            attempt=attempt,
             text=output.answer,
             cited_source_ids=[c for c in cited if c in allowed],
             invalid_citations=invalid,
@@ -108,6 +118,7 @@ class DrafterAgent(BaseAgent):
             cited_source_ids=section.cited_source_ids,
             evidence_sufficient=output.evidence_sufficient,
             draft=output.answer,
+            attempt=attempt,
         )
         if invalid:
             collector.emit(

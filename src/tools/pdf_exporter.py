@@ -292,7 +292,7 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     for w_units in (1, 1, 3.3, 1):
         xs.append(xs[-1] + w_units * unit + gap)
     col_w = [unit, unit, 3.3 * unit, unit, unit]
-    row_y, row_h = 18, 48
+    row_y, row_h = 30, 48
     # top: Master Approver over the group
     lx, lw, ly, lh = xs[2], col_w[2], 128, 50
     d.add(Rect(lx, ly, lw, lh, rx=8, ry=8, fillColor=ACCENT_SOFT, strokeColor=ACCENT, strokeWidth=1.6))
@@ -310,10 +310,10 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     for i, (key, title, sub) in enumerate(boxes):
         _box(d, xs[i], row_y, col_w[i], row_h, title, sub, AGENT_COLORS[key])
     gx, gw = xs[2], col_w[2]
-    d.add(Rect(gx - 4, row_y - 12, gw + 8, row_h + 16, rx=9, ry=9, fillColor=colors.HexColor("#f0fdf4"),
+    d.add(Rect(gx - 4, row_y - 25, gw + 8, row_h + 29, rx=9, ry=9, fillColor=colors.HexColor("#f0fdf4"),
                strokeColor=colors.HexColor("#86efac"), strokeWidth=0.9, strokeDashArray=[3, 2]))
-    d.add(String(gx + 2, row_y - 8, "GROUP CHAT: RESEARCHER + DRAFTER + VERIFIER", fontName="Helvetica-Bold", fontSize=5.8, fillColor=GOOD))
-    d.add(String(gx + gw - 2, row_y - 8, _clean(f"{rounds} round(s)"), fontName="Helvetica", fontSize=5.8, fillColor=GOOD, textAnchor="end"))
+    d.add(String(gx + 2, row_y - 20, "GROUP CHAT: RESEARCHER + DRAFTER + VERIFIER", fontName="Helvetica-Bold", fontSize=5.8, fillColor=GOOD))
+    d.add(String(gx + gw - 2, row_y - 20, _clean(f"{rounds} round(s)"), fontName="Helvetica", fontSize=5.8, fillColor=GOOD, textAnchor="end"))
     sub_w = (gw - 2 * 10) / 3
     group = [("researcher", "Researcher", f"{m.sources_indexed} sources"), ("drafter", "Drafter", "cited drafts"),
              ("verifier", "Verifier", f"{m.total_claims_evaluated} claims checked")]
@@ -324,6 +324,14 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
         centers.append(bx + sub_w / 2)
         if j:
             _arrow(d, bx - 10 + 1, row_y + row_h / 2, bx - 1, row_y + row_h / 2)
+    # Verifier -> Drafter quick fixes inside the round
+    fixes = m.quick_fixes
+    fix_color = ORANGE if fixes else SUBTLE
+    vx, dx, low = centers[2] - 10, centers[1] + 10, row_y - 9
+    d.add(Line(vx, row_y, vx, low, strokeColor=fix_color, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    d.add(Line(vx, low, dx, low, strokeColor=fix_color, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    _arrow(d, dx, low, dx, row_y - 0.5, fix_color, dashed=True)
+    _label(d, (vx + dx) / 2, low - 1, f"quick fix x{fixes}" if fixes else "quick fix", ORANGE if fixes else MUTED)
     _box(d, xs[3], row_y, col_w[3], row_h, "Synthesizer", f"{m.claims_in_report} claims kept", AGENT_COLORS["synthesizer"])
     _box(d, xs[4], row_y, col_w[4], row_h, "Publish", "redact . seal", AGENT_COLORS["output_guard"])
     mid = row_y + row_h / 2
@@ -569,11 +577,12 @@ def _render(
         rows = [[_p(h, s["cellh"]) for h in ("RND", "GROUNDING", "COVERAGE", "DECISION", "RATIONALE AND INSTRUCTIONS")]]
         for rr in report.round_reviews:
             decision = ("extra pass" if rr.extra_round else "another round") if rr.decision == "another_round" else ("approved" if rr.gate_passed else "approved, gaps disclosed")
+            fixed = f'<br/><font color="#64748b">after {rr.exchanges} quick fix(es)</font>' if rr.exchanges else ""
             ins = "".join(f"<br/>- <b>{_x(i.agent.title())} {_x(i.sub_question_id)}</b>: {_x(i.instruction)}" for i in rr.instructions[:4])
             rows.append([_p(str(rr.round), s["cellb"]),
                          [_p(f"{rr.grounding_rate * 100:.0f}% (bar {rr.grounding_threshold * 100:.0f}%)", s["cell"]), Bar(rr.grounding_rate, width=width * 0.11, color=BLUE, target=rr.grounding_threshold)],
                          [_p(f"{rr.coverage_score * 100:.0f}% (bar {rr.coverage_threshold * 100:.0f}%)", s["cell"]), Bar(rr.coverage_score, width=width * 0.11, color=ORANGE, target=rr.coverage_threshold)],
-                         Paragraph(f'<font color="{"#b45309" if rr.decision == "another_round" else "#15803d"}"><b>{_x(decision)}</b></font>', s["cell"]),
+                         Paragraph(f'<font color="{"#b45309" if rr.decision == "another_round" else "#15803d"}"><b>{_x(decision)}</b></font>{fixed}', s["cell"]),
                          Paragraph(_x(rr.rationale) + ins, s["cell"])])
         story.append(_table(rows, [width * 0.07, width * 0.15, width * 0.15, width * 0.13, width * 0.50]))
 
@@ -649,6 +658,9 @@ def _render(
          "scored for authority (Tier 1 official and peer reviewed, Tier 2 reputable, Tier 3 other) and indexed as exact character spans."),
         ("Claim-level verification", "Drafts are split into atomic claims. Each claim is judged only against the spans of the sources it cites. The "
          "supporting quote must exist verbatim in the source, figures must match, and the source must clear the admissibility floor."),
+        ("Group chat quick fixes", "Inside each round the Verifier sends rejected claims straight back to the Drafter, who revises its own draft "
+         "from the same evidence, keeping what was accepted and fixing or dropping what was rejected; the Verifier then re-checks. This "
+         "repeats a bounded number of times (two by default) and only while grounding improves."),
         ("Master Approver rounds", "The Verifier reports each round to the Master Approver. Below the grounding and coverage bar the group must go again, with "
          "instructions for each agent; the Master Approver approves only work that clears the bar, or discloses the gaps when rounds run out."),
         ("Publication", "The Synthesizer sees only supported claims; a citation guard drops any sentence citing unverified sources. The output shield "

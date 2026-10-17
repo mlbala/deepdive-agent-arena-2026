@@ -78,6 +78,11 @@ class ResearchState(TypedDict, total=False):
     round_reviews: Annotated[list[RoundReview], append_list]
     master_instructions: list[AgentInstruction]  # for the next evidence round
 
+    # --- Group chat inside a round (Verifier -> Drafter quick fixes) -------------
+    exchange: int  # quick fixes done in the current round
+    group_next: str  # where the Verifier sends the work next: drafter (quick fix) | master (round report)
+    round_first_check: IterationMetrics | None  # the round's first check, before quick fixes
+
     # --- Retrieval (keyed, merged across iterations) --------------------------
     sources: Annotated[dict[str, SourceDocument], merge_dicts]          # source_id -> doc
     evidence: Annotated[dict[str, EvidenceChunk], merge_dicts]          # chunk_id -> span
@@ -136,6 +141,9 @@ def initial_state(
         master_decision="",
         round_reviews=[],
         master_instructions=[],
+        exchange=0,
+        group_next="",
+        round_first_check=None,
         sources={},
         evidence={},
         evidence_by_sq={},

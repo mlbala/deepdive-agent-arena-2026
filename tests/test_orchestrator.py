@@ -24,7 +24,8 @@ def test_graph_topology_has_cyclic_verification_edge(make_orchestrator):
     edges = {(e.source, e.target, e.conditional) for e in graph.edges}
     assert ("__start__", "input_guard", False) in edges
     assert ("input_guard", "planner", True) in edges and ("input_guard", "__end__", True) in edges
-    assert ("planner", "master", False) in edges and ("verifier", "master", False) in edges, "the Master Approver is the hub"
+    assert ("planner", "master", False) in edges, "the Master Approver is the hub"
+    assert ("verifier", "master", True) in edges and ("verifier", "drafter", True) in edges, "round report | quick fix"
     assert {("master", "planner", True), ("master", "researcher", True), ("master", "synthesizer", True)} <= edges
     assert ("synthesizer", "output_guard", False) in edges and ("output_guard", "__end__", False) in edges
     assert "master -.-> researcher" in orchestrator.mermaid()
@@ -223,12 +224,15 @@ def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
     seen: dict[str, set[str]] = {}
     from eval.simulated_llm import HeuristicMeshSimulator
 
-    looping, _, _ = make_orchestrator(client=HeuristicMeshSimulator(hallucinate_first_draft=True), grounding_threshold=0.9)
-    for node, update in looping.stream("How much solar PV capacity was added globally in 2023?"):
-        if node in catalog.NODE_WRITES:
-            assert set(update) <= set(catalog.NODE_WRITES[node]), (node, set(update) - set(catalog.NODE_WRITES[node]))
-            seen.setdefault(node, set()).update(update)
+    for exchanges in (2, 0):  # quick-fix path inside a round, and the research loop-back path
+        looping, _, _ = make_orchestrator(client=HeuristicMeshSimulator(hallucinate_first_draft=True), grounding_threshold=0.9,
+                                          group_chat_exchanges=exchanges)
+        for node, update in looping.stream("How much solar PV capacity was added globally in 2023?"):
+            if node in catalog.NODE_WRITES:
+                assert set(update) <= set(catalog.NODE_WRITES[node]), (node, set(update) - set(catalog.NODE_WRITES[node]))
+                seen.setdefault(node, set()).update(update)
     assert set(seen) == set(catalog.NODE_WRITES)
+    assert set(seen["verifier"]) == set(catalog.NODE_WRITES["verifier"]), "both verifier exits were exercised"
 
     agents = {a["id"]: a for a in arch["agents"]}
     assert agents["drafter"]["prompts"][0]["text"] == drafter.SYSTEM_PROMPT

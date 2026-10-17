@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     plan_approval_threshold: float = Field(default=0.80, ge=0, le=1)
     max_plan_revisions: int = Field(default=2, ge=0, le=4)
     master_extra_rounds: int = Field(default=1, ge=0, le=2)  # extra passes the Master Approver may add after the gate passes
+    group_chat_exchanges: int = Field(default=2, ge=0, le=4)  # Verifier -> Drafter quick fixes per round, before the round report
 
     # --- Storage & concurrency ----------------------------------------------
     database_url: str = "sqlite:///./data/deepdive.db"
@@ -211,6 +212,7 @@ class Settings(BaseSettings):
             "plan_approval_threshold": self.plan_approval_threshold,
             "max_plan_revisions": self.max_plan_revisions,
             "master_extra_rounds": self.master_extra_rounds,
+            "group_chat_exchanges": self.group_chat_exchanges,
             "policy_version": self.policy_version,
             "auth_required": bool(self.api_key_set),
         }
@@ -239,6 +241,7 @@ class Settings(BaseSettings):
                 "plan_approval_threshold": self.plan_approval_threshold,
                 "max_plan_revisions": self.max_plan_revisions,
                 "master_extra_rounds": self.master_extra_rounds,
+                "group_chat_exchanges": self.group_chat_exchanges,
                 "coverage_threshold": self.coverage_threshold,
                 "grounding_threshold": self.grounding_threshold,
             },

@@ -37,12 +37,13 @@ const STAGE_INFO = {
   master_plan: { agent: 'master', label: 'Master Approver reviews plan', what: 'The Master Approver, which coordinates and approves the whole team, scores the plan on coverage, distinctness, searchability, premise testing and specificity, and runs deterministic checks. Below the bar, or with a blocking issue, the plan goes back to the Planner with concrete fixes. Once it passes, the Master Approver briefs the group.' },
   research: { agent: 'researcher', label: 'Research', what: 'The Master Approver opens the group chat: the Researcher, Drafter and Verifier work together, handing work to each other round after round until the Master Approver approves it. Searches run in parallel, and every page is scored for authority, cleaned of injected instructions and indexed with exact character spans.' },
   draft: { agent: 'drafter', label: 'Draft', what: 'The Drafter writes an answer for each sub-question using only the evidence, and cites every factual sentence with [SRC-XXX].' },
+  fix: { agent: 'verifier', label: 'Quick fix', what: 'Inside the group chat the Verifier sends the claims it rejected straight back to the Drafter. The Drafter revises its own draft from the same evidence, keeping what was accepted and fixing or dropping what was rejected, and the Verifier re-checks it. This happens at most twice per round, and only while it helps, before the round report goes to the Master Approver.' },
   verify: { agent: 'verifier', label: 'Verify', what: 'Every sentence is split into atomic claims, and each claim is checked against the exact text of its cited source. The quote has to exist verbatim, and any figures have to match. The Verifier then reports the round to the Master Approver.' },
   master_review: { agent: 'master', label: 'Master Approver reviews round', what: 'The Master Approver reads the Verifier\'s round report against the quality gate. Below the bar it must send the group back, with an instruction for the Researcher and the Drafter on each weak sub-question. Once the evidence clears the bar it approves the work for the Synthesizer.' },
   report: { agent: 'synthesizer', label: 'Write report', what: 'The Synthesizer writes the report from verified claims only. Unsupported claims are removed, and contradictions are shown openly.' },
   publish: { agent: 'output_guard', label: 'Publish', what: 'The output shield redacts personal data and secrets, attaches the governance summary, and seals the hash-chained audit trail.' },
 };
-const DELAY = { node_started: 950, plan_created: 1300, plan_reviewed: 1500, round_reviewed: 1500, agent_message: 1100, search_executed: 380, source_indexed: 320, draft_created: 1000, claims_extracted: 700, claim_verified: 300, claim_downgraded: 600, contradiction_detected: 900, metrics_computed: 1000, route_decision: 1300, loop_back: 1500, refinement_planned: 1100, report_compiled: 1300, guardrail_finding: 700, guardrail_blocked: 1600, trace: 160 };
+const DELAY = { quick_fix: 1300, node_started: 950, plan_created: 1300, plan_reviewed: 1500, round_reviewed: 1500, agent_message: 1100, search_executed: 380, source_indexed: 320, draft_created: 1000, claims_extracted: 700, claim_verified: 300, claim_downgraded: 600, contradiction_detected: 900, metrics_computed: 1000, route_decision: 1300, loop_back: 1500, refinement_planned: 1100, report_compiled: 1300, guardrail_finding: 700, guardrail_blocked: 1600, trace: 160 };
 
 const D = { scenario: 0, runId: null, origin: null, items: [], shown: -1, playing: false, speed: 1, mode: 'auto', timer: null, pinnedStage: null, chain: null, logCount: 0, chatCount: 0, chatRun: null, side: 'chat', recorded: {} };
 
@@ -62,16 +63,17 @@ function model(k) {
     status: 'idle', query: '', blocked: null, t0: D.items.length ? ts(D.items[0]) : 0, now: 0,
     stages: [], agents: {}, loops: 0, active: null,
     screen: { status: null, llm: null, findings: [] },
-    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], masterMode: null,
+    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], masterMode: null, fixes: [], ex: {},
     research: {}, drafts: {}, verify: {},
     report: { removed: [], compiled: null }, publish: null,
     mesh: { calls: 0, tokens: 0, ms: 0, byModel: {}, byAgent: {} },
   };
-  const stage = (key, iteration) => {
-    let s = M.stages.find((x) => x.key === key && x.iteration === iteration);
-    if (!s) { s = { key, iteration, status: 'active', count: 0 }; M.stages.forEach((x) => { if (x.status === 'active') x.status = 'done'; }); M.stages.push(s); }
+  const stage = (key, iteration, exchange = 0) => {
+    let s = M.stages.find((x) => x.key === key && x.iteration === iteration && (x.exchange || 0) === exchange);
+    if (!s) { s = { key, iteration, exchange, status: 'active', count: 0 }; M.stages.forEach((x) => { if (x.status === 'active') x.status = 'done'; }); M.stages.push(s); }
     return s;
   };
+  const bucket = (i) => ((M.ex[i] || 0) ? `${i}.${M.ex[i]}` : i); // quick-fix drafts and verdicts stay separate from the round's first pass
   const iterOf = (it) => Math.max(1, it.iteration || 1);
   for (let j = 0; j <= k && j < D.items.length; j++) {
     const it = D.items[j]; const p = it.payload || {};
@@ -91,6 +93,9 @@ function model(k) {
         const node = ['approver', 'lead'].includes(it.node) ? 'master' : it.node; // runs recorded under earlier names
         M.agents[node] = 'active'; M.active = node;
         if (node === 'master') M.masterMode = p.mode === 'round' ? 'round' : 'plan';
+        if (node === 'researcher') M.ex[i] = 0;
+        if (node === 'drafter' || node === 'verifier') M.ex[i] = p.exchange || 0;
+        if ((node === 'drafter' || node === 'verifier') && M.ex[i]) { stage('fix', i, M.ex[i]); break; }
         const key = node === 'master' ? (M.masterMode === 'round' ? 'master_review' : 'master_plan')
           : { input_guard: 'screen', planner: 'plan', researcher: 'research', drafter: 'draft', verifier: 'verify', synthesizer: 'report', output_guard: 'publish' }[node];
         if (key) stage(key, ['plan', 'master_plan', 'research', 'draft', 'verify', 'master_review'].includes(key) ? i : 1);
@@ -118,13 +123,14 @@ function model(k) {
       case 'refinement_planned': (M.research[i] ||= blankResearch()).refinements = p.queries || []; break;
       case 'search_executed': (M.research[i] ||= blankResearch()).searches.push(p); break;
       case 'source_indexed': { const r = (M.research[i] ||= blankResearch()); r.sources.push(p); stage('research', i).count = r.sources.length; break; }
-      case 'draft_created': { const d = (M.drafts[i] ||= []); d.push(p); stage('draft', i).count = d.length; break; }
+      case 'quick_fix': M.fixes.push({ ...p, round: i }); stage('fix', i, p.exchange || 1); break;
+      case 'draft_created': { const d = (M.drafts[bucket(i)] ||= []); d.push(p); stage(M.ex[i] ? 'fix' : 'draft', i, M.ex[i] || 0).count = d.length; break; }
       case 'citation_invalid': (M.drafts[`${i}-invalid`] ||= []).push(p); break;
-      case 'claims_extracted': { const v = (M.verify[i] ||= blankVerify()); (p.claims || []).forEach((c) => { v.claims[c.claim_id] = c; }); break; }
-      case 'claim_verified': { const v = (M.verify[i] ||= blankVerify()); v.verdicts.push(p); stage('verify', i).count = v.verdicts.length; break; }
-      case 'claim_downgraded': (M.verify[i] ||= blankVerify()).downgrades[p.claim_id] = p.reason; break;
-      case 'contradiction_detected': (M.verify[i] ||= blankVerify()).contradictions.push(p); break;
-      case 'metrics_computed': (M.verify[i] ||= blankVerify()).metrics = p; break;
+      case 'claims_extracted': { const v = (M.verify[bucket(i)] ||= blankVerify()); (p.claims || []).forEach((c) => { v.claims[c.claim_id] = c; }); break; }
+      case 'claim_verified': { const v = (M.verify[bucket(i)] ||= blankVerify()); v.verdicts.push(p); if (!M.ex[i]) stage('verify', i).count = v.verdicts.length; break; }
+      case 'claim_downgraded': (M.verify[bucket(i)] ||= blankVerify()).downgrades[p.claim_id] = p.reason; break;
+      case 'contradiction_detected': (M.verify[bucket(i)] ||= blankVerify()).contradictions.push(p); break;
+      case 'metrics_computed': (M.verify[bucket(i)] ||= blankVerify()).metrics = p; break;
       case 'route_decision': (M.verify[i] ||= blankVerify()).route = p; break;
       case 'budget_guard': (M.verify[i] ||= blankVerify()).budget = p; break;
       case 'loop_back': M.loops++; (M.verify[i] ||= blankVerify()).loop = p; break;
@@ -152,6 +158,7 @@ function logLine(it) {
     case 'run_started': text = `New run: “${p.query || ''}”`; break;
     case 'plan_created': text = (p.round || 1) > 1 ? `Revised the plan (version ${p.round}): ${(p.sub_questions || []).length} sub-questions` : `Split the question into ${(p.sub_questions || []).length} sub-questions`; break;
     case 'plan_reviewed': text = `Plan v${p.round}: score ${Number(p.score).toFixed(2)} (needs ${Number(p.threshold).toFixed(2)}) → ${p.passed ? 'approved' : p.forced ? 'proceeding with open issues' : 'sent back to the Planner'}`; tone = p.passed ? 'ok' : 'warn'; break;
+    case 'quick_fix': text = `↺ Quick fix ${p.exchange}: ${(p.targets || []).join(', ')} sent back to the Drafter`; tone = 'loop'; break;
     case 'agent_message': who = p.sender; text = `→ ${(p.to || []).map((n) => NAME[n] || n).join(', ') || 'team'}: ${(p.text || '').slice(0, 150)}`; tone = 'chat'; break;
     case 'search_executed': text = `Searched “${p.query}” → ${p.results} result(s) via ${p.tier || 'no provider'}`; break;
     case 'source_indexed': text = `Found: ${p.title || p.url} (${(p.authority?.tier || '').replace('_', ' ')} · ${Number(p.authority?.score || 0).toFixed(2)})`; break;
@@ -315,6 +322,11 @@ function drawWires(M) {
   const down = (C, kind, label) => wire(`M${C.cx},${L1.b} L${C.cx},${C.t - 2}`, kind, label, C.cx + 8, (L1.b + C.t) / 2, true);
   down(RE, M.loops ? 'loop' : M.reviews.some((r) => r.passed || r.forced) ? flow('researcher') : 'off', M.loops ? `another round ×${M.loops}` : 'dispatch');
   down(DR, st('drafter') ? flow('drafter') : 'off', briefs ? `${briefs} instruction${briefs === 1 ? '' : 's'}` : 'brief');
+  const fixes = M.fixes.length;
+  const fixing = (M.ex[researchRounds(M)] || 0) > 0 && (st('drafter') === 'active' || st('verifier') === 'active');
+  const yb = Math.max(DR.b, VE.b);
+  wire(`M${VE.cx - 14},${VE.b} C${VE.cx - 14},${yb + 20} ${DR.cx + 14},${yb + 20} ${DR.cx + 14},${DR.b + 2}`,
+    fixes ? (fixing ? 'live' : 'loop') : 'off', fixes ? `quick fix ×${fixes}` : 'quick fix', (VE.cx + DR.cx) / 2, yb + 15);
   wire(`M${VE.cx},${VE.t} L${VE.cx},${L1.b + 2}`, M.rounds.length ? 'on' : st('verifier') === 'done' ? 'live' : 'off', M.rounds.length ? `round report ×${M.rounds.length}` : 'round report', VE.cx + 8, (L1.b + VE.t) / 2, true);
   const y3 = L1.cy;
   wire(`M${L1.r},${y3} L${SY.cx - k},${y3} Q${SY.cx},${y3} ${SY.cx},${y3 + k} L${SY.cx},${SY.t - 2}`, approved ? 'ok' : 'off', approved ? 'approved ✓' : 'approve', (L1.r + SY.cx) / 2, y3);
@@ -367,25 +379,26 @@ function renderStages(M) {
   const order = (s) => {
     if (s.key === 'plan') return 1 + (s.iteration - 1) * 2;
     if (s.key === 'master_plan') return 2 + (s.iteration - 1) * 2;
-    const loopIdx = { research: 0, draft: 1, verify: 2, master_review: 3 };
-    if (s.key in loopIdx) return 20 + (s.iteration - 1) * 4 + loopIdx[s.key];
+    const loopIdx = { research: 0, draft: 1, verify: 2, master_review: 9 };
+    if (s.key === 'fix') return 20 + (s.iteration - 1) * 12 + 2 + (s.exchange || 1);
+    if (s.key in loopIdx) return 20 + (s.iteration - 1) * 12 + loopIdx[s.key];
     return { screen: 0, report: 100, publish: 101 }[s.key];
   };
   shown.sort((a, b) => order(a) - order(b));
   D.stageList = shown;
   const current = currentStage(M);
   $('#dStages').innerHTML = shown.map((s, idx) => {
-    const label = s.key === 'master_review' ? `Master Approver reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
+    const label = s.key === 'fix' ? `Quick fix ${s.exchange}: Verifier ⇄ Drafter` : s.key === 'master_review' ? `Master Approver reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
     const icon = { done: '✓', active: '●', blocked: '✕', skipped: '–', pending: '' }[s.status] ?? '';
-    const sel = current && current.key === s.key && current.iteration === s.iteration;
-    return `<button class="dstage ${sel ? 'selected' : ''}" data-state="${s.status}" data-stage="${s.key}:${s.iteration}"><span class="dstage-icon">${icon}</span><span class="flex-1 text-left">${esc(label)}${s.iteration > 1 ? (['plan', 'master_plan'].includes(s.key) ? '<span class="ml-1.5 text-[10px]" style="color:rgb(var(--indigo-t))">revision</span>' : s.key === 'master_review' ? '' : '<span class="ml-1.5 text-[10px] text-amber-300">loop</span>') : ''}</span><span class="dstage-n">${s.count || idx + 1}</span></button>`;
+    const sel = current && current.key === s.key && current.iteration === s.iteration && (current.exchange || 0) === (s.exchange || 0);
+    return `<button class="dstage ${sel ? 'selected' : ''}" data-state="${s.status}" data-stage="${s.key}:${s.iteration}:${s.exchange || 0}"><span class="dstage-icon">${icon}</span><span class="flex-1 text-left">${esc(label)}${s.iteration > 1 ? (['plan', 'master_plan'].includes(s.key) ? '<span class="ml-1.5 text-[10px]" style="color:rgb(var(--indigo-t))">revision</span>' : s.key === 'master_review' ? '' : '<span class="ml-1.5 text-[10px] text-amber-300">loop</span>') : ''}</span><span class="dstage-n">${s.count || idx + 1}</span></button>`;
   }).join('');
 }
 
 function currentStage(M) {
   if (D.pinnedStage) {
-    const [key, iter] = D.pinnedStage.split(':');
-    const found = (D.stageList || M.stages).find((s) => s.key === key && s.iteration === Number(iter));
+    const [key, iter, ex] = D.pinnedStage.split(':');
+    const found = (D.stageList || M.stages).find((s) => s.key === key && s.iteration === Number(iter) && (s.exchange || 0) === Number(ex || 0));
     if (found) return found;
   }
   return M.stages[M.stages.length - 1] || null;
@@ -411,9 +424,9 @@ function renderPanel(M) {
   const st = currentStage(M);
   if (!st) { el.innerHTML = '<div class="dempty"><h2>Starting run…</h2></div>'; return; }
   const info = STAGE_INFO[st.key];
-  const idx = (D.stageList || []).findIndex((s) => s.key === st.key && s.iteration === st.iteration) + 1;
-  const head = `<div class="dpanel-head"><span class="dpanel-kicker">Stage ${idx} · ${esc(st.key === 'master_review' ? `Master Approver reviews round ${st.iteration}` : st.iteration > 1 ? (AGAIN[st.key] || info.label) : info.label)}</span><span class="kind-pill" style="--c:${AGENT[info.agent].color}">${esc(AGENT[info.agent].label)}</span></div><p class="dpanel-what">${esc(info.what)}</p>`;
-  el.innerHTML = head + (STAGE_RENDER[st.key](M, st.iteration) || '');
+  const idx = (D.stageList || []).findIndex((s) => s.key === st.key && s.iteration === st.iteration && (s.exchange || 0) === (st.exchange || 0)) + 1;
+  const head = `<div class="dpanel-head"><span class="dpanel-kicker">Stage ${idx} · ${esc(st.key === 'fix' ? `Quick fix ${st.exchange} · round ${st.iteration}` : st.key === 'master_review' ? `Master Approver reviews round ${st.iteration}` : st.iteration > 1 ? (AGAIN[st.key] || info.label) : info.label)}</span><span class="kind-pill" style="--c:${AGENT[info.agent].color}">${esc(AGENT[info.agent].label)}</span></div><p class="dpanel-what">${esc(info.what)}</p>`;
+  el.innerHTML = head + (STAGE_RENDER[st.key](M, st.iteration, st) || '');
 }
 
 const STAGE_RENDER = {
@@ -454,6 +467,26 @@ const STAGE_RENDER = {
       <div class="dmeter"><div class="dsub">Plan score <b class="float-right text-slate-100">${Number(r.score).toFixed(2)}</b></div>${bar(r.score, r.threshold, r.passed ? 'rgb(var(--green))' : 'rgb(var(--orange))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${Number(r.threshold).toFixed(2)} and no blocking issue</div></div>
       <div class="droute ${r.passed ? '' : 'loop'}">${decision}</div>
       <p class="text-[12px] leading-relaxed text-slate-500">Score = mean of the rubric, minus penalties from the deterministic checks (dropped entities, overlapping sub-questions, malformed queries). A high-severity issue from the model blocks only when its own rubric agrees (a criterion below 0.70); deterministic high issues always block.</p></div></div>`;
+  },
+  fix(M, i, st) {
+    const ex = st?.exchange || 1;
+    const req = M.fixes.find((f) => f.round === i && f.exchange === ex);
+    const drafts = M.drafts[`${i}.${ex}`] || [];
+    const v = M.verify[`${i}.${ex}`] || blankVerify();
+    const after = v.metrics?.grounding_rate;
+    const counts = { SUPPORTED: 0, UNSUPPORTED: 0, CONTRADICTED: 0 };
+    v.verdicts.forEach((x) => { counts[x.verdict] = (counts[x.verdict] || 0) + 1; });
+    const notes = (req?.gaps || []).flatMap((g) => [`<div class="dsub mt-2"><span class="sqref">${esc(g.sub_question_id)}</span> ${esc(g.reason)}</div>`,
+      ...(g.feedback || []).slice(0, 3).map((f) => `<div class="dissue fade-in text-[12.5px]">${esc(f)}</div>`)]).join('');
+    return `<div class="grid gap-4 lg:grid-cols-[1fr_260px]"><div>
+      <div class="dsub">Verifier → Drafter: claims sent back</div>${notes || '<div class="dwait">Preparing the fix request…</div>'}
+      <div class="dsub mt-4">Drafter → Verifier: revised from the same evidence</div>
+      ${drafts.length ? drafts.map((d) => `<div class="ddraft fade-in"><div class="flex items-center gap-2"><span class="font-mono text-[10.5px] text-pink-300">${esc(d.sub_question_id)}</span><span class="text-[10.5px] text-slate-500">quick fix ${ex}</span><span class="ml-auto text-[10.5px] text-slate-500">cites ${(d.cited_source_ids || []).length} source(s)</span></div><p class="mt-1.5 text-[13.5px] leading-relaxed text-slate-300">${cite(d.draft || '')}</p></div>`).join('') : '<div class="dwait">The Drafter is revising…</div>'}
+      ${v.verdicts.length ? `<div class="dsub mt-4">Re-check · <span class="text-emerald-300">${counts.SUPPORTED} supported</span> · <span class="text-amber-300">${counts.UNSUPPORTED} unsupported</span> · <span class="text-rose-300">${counts.CONTRADICTED} contradicted</span></div>` : ''}
+    </div><div class="space-y-3">
+      <div class="dmeter"><div class="dsub">Grounding before <b class="float-right text-slate-100">${req ? pct(req.grounding_rate) : '—'}</b></div>${bar(req?.grounding_rate, undefined, 'rgb(var(--orange))')}</div>
+      <div class="dmeter"><div class="dsub">After the fix <b class="float-right text-slate-100">${after !== undefined ? pct(after) : '—'}</b></div>${bar(after, undefined, 'rgb(var(--green))')}</div>
+      <p class="text-[12px] leading-relaxed text-slate-500">No new research: the Drafter fixes its own draft from the evidence it already had. Another quick fix happens only if this one raised grounding, and at most twice per round; then the round report goes to the Master Approver.</p></div></div>`;
   },
   master_review(M, i) {
     const r = M.rounds.find((x) => (x.round || 1) === i);
@@ -506,6 +539,7 @@ const STAGE_RENDER = {
         <div class="mt-0.5 text-[11px] text-slate-500">${x.evidence_source_id ? `<span class="chip" data-src="${esc(x.evidence_source_id)}">${esc(x.evidence_source_id)}</span> ` : ''}${x.quote_verified ? '<span class="text-emerald-400">verbatim quote located</span>' : 'no verbatim quote'} · conf ${Number(x.confidence || 0).toFixed(2)}${v.downgrades[x.claim_id] ? ` · <span class="text-amber-300">${esc(v.downgrades[x.claim_id])}</span>` : ''}</div></div></button>`).join('') || '<div class="dwait">Extracting atomic claims…</div>'}</div></div>
       <div class="space-y-3"><div class="dmeter"><div class="dsub">Grounding <b class="float-right text-slate-100">${m ? pct(m.grounding_rate) : '—'}</b></div>${bar(m?.grounding_rate, r?.grounding_threshold ?? 0.75, 'rgb(var(--green))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r?.grounding_threshold ?? 0.75)}</div></div>
         <div class="dmeter"><div class="dsub">Coverage <b class="float-right text-slate-100">${m ? pct(m.coverage_score) : '—'}</b></div>${bar(m?.coverage_score, r?.coverage_threshold ?? 0.7, 'rgb(var(--cyan))')}<div class="text-[10.5px] text-slate-500">needs ≥ ${pct(r?.coverage_threshold ?? 0.7)}</div></div>
+        ${M.fixes.some((f) => f.round === i && f.exchange === 1) && !r ? `<div class="droute loop"><b>Sent back to the Drafter</b> for a quick fix before the round report.</div>` : ''}
         ${r ? `<div class="droute ${r.route === 'researcher' ? 'loop' : ''}">${r.route === 'researcher' ? `<b>Master Approver: another round</b> for ${esc((v.loop?.gaps || []).map((g) => g.sub_question_id).join(', ') || 'the weak sub-questions')}.` : v.budget ? '<b>Budget guard:</b> loop-back suppressed; the Master Approver approves what is verified.' : '<b>Master Approver: approved.</b> Moving on to the report.'}</div>` : m ? '<div class="droute">Round report sent to the Master Approver…</div>' : ''}
         ${v.contradictions.length ? `<div class="dsub text-rose-300">${v.contradictions.length} contradiction(s) found</div>${v.contradictions.map((c) => `<div class="dctr"><div class="text-[11.5px] text-slate-300">${esc(c.topic)}</div><div class="mt-1 text-[11px] text-indigo-300">${esc(c.resolution_hint)}</div></div>`).join('')}` : ''}</div></div>`;
   },

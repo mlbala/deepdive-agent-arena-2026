@@ -893,7 +893,7 @@ def run_timeline(store: AuditStore, run_id: str) -> dict[str, Any]:
         calls.append({"agent": tr["agent_name"], "operation": tr["operation"], "model": tr["model"], "status": tr["status"],
                       "start_ms": max(0, end_ms - int(tr["latency_ms"] or 0)), "end_ms": end_ms,
                       "latency_ms": tr["latency_ms"], "tokens": tr["total_tokens"]})
-    marker_types = {"route_decision", "loop_back", "guardrail_blocked", "budget_guard", "run_completed", "run_blocked", "run_failed"}
+    marker_types = {"route_decision", "loop_back", "quick_fix", "guardrail_blocked", "budget_guard", "run_completed", "run_blocked", "run_failed"}
     markers = [
         {"type": ev["event_type"], "t_ms": rel(_parse_ts(ev.get("created_at_iso") or ev.get("created_at"))),
          "node": ev["node"], "message": ev["message"], "route": (ev.get("payload") or {}).get("route")}
