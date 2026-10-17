@@ -121,6 +121,7 @@ class AuditEventType(StrEnum):
     PLAN_REVIEWED = "plan_reviewed"
     ROUND_REVIEWED = "round_reviewed"
     QUICK_FIX = "quick_fix"
+    REPORT_AUDITED = "report_audited"
     AGENT_MESSAGE = "agent_message"
     SEARCH_EXECUTED = "search_executed"
     SOURCE_INDEXED = "source_indexed"
@@ -428,6 +429,37 @@ class RoundReview(_Model):
     llm_reviewed: bool = False
 
 
+class AuditedSentence(_Model):
+    """One sentence of the synthesized report, as checked by the Report Approver."""
+
+    sid: str
+    location: str  # executive_summary | key_finding:N | section:SQ-N
+    text: str
+    cited_source_ids: list[str] = Field(default_factory=list)
+    verdict: Verdict | None = None
+    quote_verified: bool = False
+    evidence_source_id: str | None = None
+    evidence_quote: str | None = None
+    reason: str = ""
+    status: Literal["supported", "failed", "fixed", "removed", "skipped", "unchecked"] = "supported"
+
+
+class ReportAudit(_Model):
+    """The Report Approver's verdict on one version of the report."""
+
+    round: int = Field(ge=1)
+    judged: int = 0
+    supported: int = 0
+    failed: int = 0
+    skipped: int = 0
+    unchecked: int = 0  # the Mesh entailment call failed: kept, flagged, re-tried in a later check
+    groundedness: float = Field(default=1.0, ge=0.0, le=1.0)  # supported / judged
+    passed: bool = True
+    decision: Literal["approve", "fix", "remove"] = "approve"
+    sentences: list[AuditedSentence] = Field(default_factory=list)
+    llm_reviewed: bool = True
+
+
 class AgentMessage(_Model):
     """One hand-off in the agents' group chat: what one agent actually passes to the next."""
 
@@ -515,6 +547,10 @@ class ReportMetrics(_Model):
     plan_rounds: int = 0
     plan_score: float = 0.0
     quick_fixes: int = 0
+    report_groundedness_initial: float | None = None  # report sentences supported on the Report Approver's first check
+    report_groundedness: float | None = None  # after fixes and removals
+    report_sentences_fixed: int = 0
+    report_sentences_removed: int = 0
 
 
 class FinalReport(_Model):
@@ -534,6 +570,7 @@ class FinalReport(_Model):
     governance: GovernanceSummary | None = None
     plan_reviews: list[PlanReview] = Field(default_factory=list)
     round_reviews: list[RoundReview] = Field(default_factory=list)
+    report_audits: list[ReportAudit] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=utcnow)
 
 
@@ -753,6 +790,15 @@ class GuardianOutput(_Model):
     @classmethod
     def _lower_verdict(cls, value: Any) -> Any:
         return value.strip().lower() if isinstance(value, str) else value
+
+
+class SentenceFix(_Model):
+    sid: str
+    text: str = Field(default="", description="The corrected sentence with its [SRC-XXX] citations, or empty to drop it.")
+
+
+class ReportRevisionOutput(_Model):
+    fixes: list[SentenceFix] = Field(default_factory=list)
 
 
 class FollowUpOutput(_Model):

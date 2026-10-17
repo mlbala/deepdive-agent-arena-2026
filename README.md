@@ -1,6 +1,6 @@
 # DeepDive: Self-Verifying Multi-Agent Research
 
-**Agent Arena 2026 · Track 01.** DeepDive is a research system that won't publish a sentence it can't trace to a verbatim span in a real source. Guardrail nodes screen what goes in and what comes out, and six specialised agents run in a LangGraph cycle between them: plan, retrieve, draft with citations, **break the draft into atomic claims and check each one against the exact text of its cited source**, loop back for better evidence when verification fails, then publish only what survived. Every claim, verdict, quote, contradiction, and LLM call is recorded in an append-only audit store and streamed live to an observability dashboard.
+**Agent Arena 2026 · Track 01.** DeepDive is a research system that won't publish a sentence it can't trace to a verbatim span in a real source. Guardrail nodes screen what goes in and what comes out, and six specialised agents run in a LangGraph cycle between them: plan, retrieve, draft with citations, **break the draft into atomic claims and check each one against the exact text of its cited source**, loop back for better evidence when verification fails, then **re-check the finished report sentence by sentence** and publish only what survived. Every claim, verdict, quote, contradiction, and LLM call is recorded in an append-only audit store and streamed live to an observability dashboard.
 
 All LLM and embedding traffic goes through **Mesh API** (`https://api.meshapi.ai/v1`) using the official `openai` SDK.
 
@@ -68,16 +68,18 @@ flowchart LR
         end
         V -->|round report| L
         L -->|approved: gate met · max rounds · budget soft limit| S[6 · Synthesizer<br/>verified report + citation guard]
-        S --> OG[Output shield<br/>redaction + governance summary]
+        S --> RA{{7 · Report Approver<br/>re-checks every cited sentence}}
+        RA -.->|fix: failing sentences| S
+        RA -->|approved · what still fails is removed| OG[Output shield<br/>redaction + governance summary]
     end
 
     OG --> DB[(SQLite audit store · SHA-256 hash-chained<br/>runs · agent_traces · claims_audit<br/>sources · evidence · audit_events)]
     R <--> VS[(Hybrid evidence index<br/>BM25 + ChromaDB)]
     R --> WR{{3-tier retriever + URL shield<br/>Tavily → DDG+BS4 → offline corpus}}
-    IG & P & L & R & D & V & S -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing<br/>model allowlist · run budgets]
+    IG & P & L & R & D & V & S & RA -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing<br/>model allowlist · run budgets]
     MG --> MESH[(Mesh API)]
     G -.->|audit events + traces| BUS[RunEventBus] -->|SSE| U
-    API --> F[7 · FollowUp agent<br/>grounded chat] --> VS
+    API --> F[8 · FollowUp agent<br/>grounded chat] --> VS
 ```
 
 The compiled graph (`GET /api/graph` returns it live) is a supervisor pattern with the **Master Approver** (`master`) as its hub, plus one guard edge:
@@ -86,6 +88,7 @@ The compiled graph (`GET /api/graph` returns it live) is a supervisor pattern wi
 - `planner -> master -.-> planner` is **plan review**. The Master Approver scores each version of the plan on a five-part rubric plus deterministic checks, and sends it back with concrete fixes until it scores at least `PLAN_APPROVAL_THRESHOLD` (0.80) with no blocking issue, or `MAX_PLAN_REVISIONS` (2) is spent. Deterministic high-severity issues always block; a high-severity issue raised by the model blocks only when the model's own rubric agrees (a criterion below 0.70), because severity labels from a model are noisy. Retrieval is the expensive part of a run, so a weak plan is cheapest to fix here.
 - `master -.-> researcher -> drafter -> verifier -> master` is the **evidence group chat**, repeated round after round. Inside a round the Verifier can send rejected claims straight back to the Drafter (`verifier -.-> drafter`, a **quick fix**) before it reports the round to the Master Approver. The deterministic quality gate (`route_verification`: coverage ≥ 0.70 and grounding ≥ 0.75) is a floor the Master Approver cannot lower: below it, with rounds and budget left, the group must go again. Above it the Master Approver approves, or adds up to `MASTER_EXTRA_ROUNDS` (1) targeted pass on sub-questions that still have gaps. Every round it orders comes with an instruction for the Researcher and the Drafter on each weak sub-question.
 - `master -.-> synthesizer` happens only when the Master Approver approves the work.
+- `synthesizer -> report_approver -.-> synthesizer | output_guard` is the **report check**. Every claim is verified before synthesis, but synthesis rewrites claims into prose, and a reworded sentence can drift from its source. The Report Approver re-checks every cited sentence of the report (summary, key findings, sections) against the sources it cites, using the Verifier's own guards (verbatim quote, numbers locked, citation scope, authority floor). Failing sentences go back to the Synthesizer, which rewrites them from the verified claims only or drops them, for up to `REPORT_AUDIT_FIXES` (1) rounds; anything that still fails is removed before publishing. A sentence that is word for word a verified claim carries that claim's verdict and verbatim quote, identical sentences are judged once per check (so a repeated sentence can't pass in one place and fail in another), and sentences that state a conflict between sources were already quote-validated by the contradiction radar and are never stripped. The check fails open on infrastructure, not on evidence: if a Mesh call fails, the sentence is kept and flagged `unchecked` rather than removed. In live Mesh runs, it caught two sentences the Synthesizer had generalised beyond their source ("technological advancements significantly impacted…", "…and favorable policies were key factors"); one was rewritten and one dropped. A report check costs about a third of the Verifier's tokens or less (11k vs 30k on the solar question, 11k vs 83k on microplastics). `REPORT_AUDIT=false` turns the step off (`synthesizer -> output_guard`).
 
 ### The agents' group chat
 
@@ -105,7 +108,8 @@ The feedback is used, not just shown. A revised plan has to address the Master A
 | **Researcher** | sub-questions + gaps → `SourceDocument`s, `EvidenceChunk`s | Parallel 3-tier search, URL + content-hash dedupe, `SRC-001…` ids, span-exact chunking, retrieval ranked 65% relevance / 35% authority with ≤ 2 chunks per source; on loop-back it asks Mesh for **targeted refinement queries** built from the Verifier's gaps |
 | **Drafter** | sub-question + evidence → `DraftSection` | Answers only from the evidence; every factual sentence cited; conflicts stated with both sources; citations outside the evidence pool are flagged; on a re-draft it gets the Verifier's reason for each rejected claim |
 | **Verifier** | drafts → `AtomicClaim`s, `VerificationResult`s, `ContradictionItem`s, `IterationMetrics` | Claim decomposition, entailment against cited spans only, deterministic guards, contradiction radar, per-sub-question gaps that drive the loop |
-| **Synthesizer** | verified claims → `FinalReport` | Sees only SUPPORTED claims; authority-weighted contradiction resolution; a **citation guard** removes any generated sentence whose citations aren't verified |
+| **Synthesizer** | verified claims → `FinalReport` | Sees only SUPPORTED claims; authority-weighted contradiction resolution; a **citation guard** removes any generated sentence whose citations aren't verified; rewrites the sentences the Report Approver sends back (`ReportRevisionOutput`) from the verified claims only |
+| **Report Approver** | report → `ReportAudit` (`AuditedSentence` per sentence) | The final approver. Re-verifies each cited report sentence with the Verifier's entailment and guards, sends failures back to the Synthesizer, removes what still fails, records first-check and final report grounding, and keeps its checks out of the claim matrix (billed to `report_approver` in traces) |
 | **FollowUp** | question + run → `FollowUpAnswer` | Retrieves from the run's own evidence (reloaded from SQLite after a restart); strips citations outside that pool; answers it can't ground are marked not answerable |
 
 Every agent prompt starts with a stable `ROLE:` line and sends its input as a JSON block. Every output is validated against a Pydantic v2 contract in [`src/schemas/domain.py`](src/schemas/domain.py).
@@ -301,7 +305,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `MESH_API_KEY` | — | **Required** for research runs |
 | `MESH_BASE_URL` | `https://api.meshapi.ai/v1` | Mesh gateway |
 | `MESH_DEFAULT_MODEL` | `openai/gpt-4o-mini` | Model for every agent |
-| `PLANNER_MODEL`, `MASTER_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
+| `PLANNER_MODEL`, `MASTER_MODEL`, `REPORT_APPROVER_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
 | `MESH_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Dense retrieval embeddings (through Mesh) |
 | `MESH_MAX_RETRIES` / `MESH_JSON_REPAIR_ATTEMPTS` | 4 / 2 | Transient-error backoff / schema self-healing rounds |
 | `TAVILY_API_KEY` | — | Optional Tier-1 retrieval |
@@ -312,6 +316,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `PLAN_APPROVAL_THRESHOLD` / `MAX_PLAN_REVISIONS` | 0.80 / 2 | Master Approver plan gate: the minimum plan score, and how many times the plan can be sent back |
 | `GROUP_CHAT_EXCHANGES` | 2 | Quick fixes per round: the Verifier sends rejected claims back to the Drafter before reporting to the Master Approver (0 turns it off) |
 | `MASTER_EXTRA_ROUNDS` | 1 | Targeted extra passes the Master Approver may order after the quality gate has passed (never beyond `MAX_ITERATIONS`) |
+| `REPORT_AUDIT` / `REPORT_AUDIT_FIXES` | true / 1 | Report Approver on/off, and how many times it can send failing sentences back to the Synthesizer before removing them |
 | `MIN_SOURCE_AUTHORITY` | 0.45 | Evidence admissibility floor |
 | `DATABASE_URL` | `sqlite:///./data/deepdive.db` | Audit store |
 | `GUARDRAILS_ENABLED` / `GUARDRAIL_LLM_SCREEN` | true / true | Shields on/off · Guardian LLM screen |
@@ -339,7 +344,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `GET /api/runs/{id}/sources[/{sid}]` | Scored sources; the detail view includes content, indexed spans, and verified-quote ranges |
 | `GET /api/runs/{id}/traces` | Immutable per-call Mesh traces (model, latency, tokens, attempts, repairs) plus per-agent rollup |
 | `GET /api/runs/{id}/audit` | Persisted audit trail |
-| `GET /api/runs/{id}/report.pdf` | Designed executive PDF: cover with verification seal, metric tiles and agent workflow diagram; Master Approver plan and round reviews; verification dashboard charts; findings with confidence bars; contradiction radar; sources with authority bars; methodology; appendices for the claim audit, stripped claims, the agents' group chat, governance and the audit chain, and Mesh telemetry |
+| `GET /api/runs/{id}/report.pdf` | Designed executive PDF: cover with verification seal, metric tiles and agent workflow diagram; Master Approver plan and round reviews; the Report Approver's sentence check; verification dashboard charts; findings with confidence bars; contradiction radar; sources with authority bars; methodology; appendices for the claim audit, stripped claims, the agents' group chat, governance and the audit chain, and Mesh telemetry |
 | `POST /api/runs/{id}/followup` | Follow-up Q&A grounded in the run's evidence |
 | `POST /api/documents` | Upload PDF/TXT/MD (deduplicated by content hash) to use as private evidence |
 | `GET /api/health` · `GET /api/graph` | Non-secret config and status · live Mermaid diagram of the compiled graph |
@@ -401,12 +406,13 @@ Power tools:
 
 ## Testing
 
-192 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+200 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
 - **Verifier and loop:** all four quote-localisation tiers, rejection of altered numbers, each guard's downgrade path, contradiction quote validation, metrics and gaps, the `route_verification` decision matrix, an end-to-end loop-back that repairs a hallucinated draft, and the loop stopping at `max_iterations`
 - **Master Approver and group chat:** the Verifier sends rejected claims back to the Drafter for a quick fix inside the round (exact hand-off sequence, unique claim ids, the cross-source scan reused, no new research), quick fixes stop as soon as one fails to raise grounding and a fix that makes things worse is not kept, and sub-questions without evidence go to the Master Approver instead; a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
+- **Report Approver:** an embellished sentence the sources don't support is sent back to the Synthesizer and fixed (exact hand-off sequence, report grounding before and after, checks billed to the Report Approver and kept out of the claim matrix, usage totals matching the traces), what still fails after the last fix is removed, conflict statements are never stripped, a Mesh outage leaves sentences flagged unchecked instead of removing them, sentences that are word for word a verified claim carry its verdict and repeated sentences get one verdict, the step can be switched off, and sentence-level rewrites leave every other sentence untouched
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
@@ -418,7 +424,8 @@ src/core/        config (BaseSettings), mesh_gateway (only LLM egress), typed ex
 src/schemas/     domain contracts + LLM I/O contracts, LangGraph ResearchState with reducers
 src/storage/     SQLAlchemy audit store (append-only guards), hybrid BM25 + Chroma evidence index
 src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exporter, offline_corpus.json
-src/agents/      guardian, planner, master (Master Approver), researcher, drafter, verifier, synthesizer, followup, orchestrator, base,
+src/agents/      guardian, planner, master (Master Approver), researcher, drafter, verifier, synthesizer, report_approver, followup,
+                 orchestrator, base,
                  group_chat (agent hand-off messages), catalog (introspected architecture description)
 src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
 src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI

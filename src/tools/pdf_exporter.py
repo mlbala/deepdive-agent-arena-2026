@@ -23,6 +23,7 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.platypus import (
     BaseDocTemplate,
     CondPageBreak,
@@ -65,12 +66,12 @@ TIER_COLORS = {"TIER_1": GOOD, "TIER_2": BLUE, "TIER_3": WARN}
 AGENT_COLORS = {
     "input_guard": colors.HexColor("#f59e0b"), "planner": colors.HexColor("#a855f7"), "master": ACCENT,
     "researcher": colors.HexColor("#0891b2"), "drafter": colors.HexColor("#db2777"), "verifier": colors.HexColor("#16a34a"),
-    "synthesizer": colors.HexColor("#2563eb"), "output_guard": colors.HexColor("#f59e0b"), "quality_gate": MUTED,
+    "synthesizer": colors.HexColor("#2563eb"), "output_guard": colors.HexColor("#f59e0b"), "report_approver": colors.HexColor("#0e9fb5"), "quality_gate": MUTED,
     "approver": ACCENT, "lead": ACCENT,
 }
 AGENT_NAMES = {
     "input_guard": "Input shield", "planner": "Planner", "master": "Master Approver", "researcher": "Researcher",
-    "drafter": "Drafter", "verifier": "Verifier", "synthesizer": "Synthesizer", "output_guard": "Output shield",
+    "drafter": "Drafter", "verifier": "Verifier", "synthesizer": "Synthesizer", "output_guard": "Output shield", "report_approver": "Report Approver",
     "quality_gate": "Quality gate", "approver": "Approver", "lead": "Master Approver",
 }
 PAGE_W, PAGE_H = A4
@@ -248,15 +249,33 @@ def _callout(flowables: list[Any], width: float, *, bg: Any = ACCENT_SOFT, bar: 
 
 
 # ------------------------------------------------------------------ drawings
+def _fit(text: str, font: str, size: float, max_w: float, floor: float = 5.2) -> float:
+    """The largest font size up to `size` at which `text` fits in `max_w` points."""
+    width = stringWidth(text, font, size)
+    return size if width <= max_w else max(floor, size * max_w / width)
+
+
 def _box(d: Drawing, x: float, y: float, w: float, h: float, title: str, sub: str, color: Any, *, dashed: bool = False,
          fill: Any = colors.white, bold_border: bool = False) -> None:
     d.add(Rect(x, y, w, h, rx=6, ry=6, fillColor=fill, strokeColor=color, strokeWidth=1.6 if bold_border else 1,
                strokeDashArray=[3, 2] if dashed else None))
+    sub_y = y + h - 26
     if title:
         d.add(Rect(x, y + h - 3, w, 3, fillColor=color, strokeColor=None))
-        d.add(String(x + w / 2, y + h - 15, _clean(title), fontName="Helvetica-Bold", fontSize=8, fillColor=INK, textAnchor="middle"))
+        title = _clean(title)
+        if stringWidth(title, "Helvetica-Bold", 8) > w - 6 and " " in title:  # two lines beat a tiny font
+            first, rest = title.split(" ", 1)
+            for k, line in enumerate((first, rest)):
+                d.add(String(x + w / 2, y + h - 14 - 9 * k, line, fontName="Helvetica-Bold",
+                             fontSize=_fit(line, "Helvetica-Bold", 8, w - 6), fillColor=INK, textAnchor="middle"))
+            sub_y = y + h - 34
+        else:
+            d.add(String(x + w / 2, y + h - 15, title, fontName="Helvetica-Bold", fontSize=_fit(title, "Helvetica-Bold", 8, w - 6),
+                         fillColor=INK, textAnchor="middle"))
     if sub:
-        d.add(String(x + w / 2, y + h - 26, _clean(sub)[:34], fontName="Helvetica", fontSize=6.4, fillColor=MUTED, textAnchor="middle"))
+        sub = _clean(sub)[:34]
+        d.add(String(x + w / 2, sub_y, sub, fontName="Helvetica", fontSize=_fit(sub, "Helvetica", 6.4, w - 5), fillColor=MUTED,
+                     textAnchor="middle"))
 
 
 def _arrow(d: Drawing, x1: float, y1: float, x2: float, y2: float, color: Any = SUBTLE, *, dashed: bool = False, width: float = 1.1) -> None:
@@ -286,12 +305,12 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     plan_v = len(report.plan_reviews) or 1
     sent_back = sum(1 for r in report.plan_reviews if not r.passed and not r.forced)
     extra = sum(1 for r in report.round_reviews if r.decision == "another_round")
-    unit = (width - 4 * 14) / 7.3  # five columns, the group column is 3.3 units wide
+    unit = (width - 5 * 14) / 8.3  # six columns, the group column is 3.3 units wide
     gap = 14
     xs = [0.0]
-    for w_units in (1, 1, 3.3, 1):
+    for w_units in (1, 1, 3.3, 1, 1):
         xs.append(xs[-1] + w_units * unit + gap)
-    col_w = [unit, unit, 3.3 * unit, unit, unit]
+    col_w = [unit, unit, 3.3 * unit, unit, unit, unit]
     row_y, row_h = 30, 48
     # top: Master Approver over the group
     lx, lw, ly, lh = xs[2], col_w[2], 128, 50
@@ -301,7 +320,8 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     d.add(String(lx + 34, ly + lh - 17, "Master Approver", fontName="Helvetica-Bold", fontSize=9, fillColor=INK))
     final = report.round_reviews[-1] if report.round_reviews else None
     verdict = ("approved for synthesis" if final and final.gate_passed else "approved, gaps disclosed") if final else "approved"
-    d.add(String(lx + 34, ly + lh - 29, _clean(f"plan v{plan_v} approved ({m.plan_score:.2f})  .  {rounds} round(s) reviewed"), fontName="Helvetica", fontSize=6.8, fillColor=MUTED))
+    line = _clean(f"plan v{plan_v} approved ({m.plan_score:.2f})  .  {rounds} round(s) reviewed")
+    d.add(String(lx + 34, ly + lh - 29, line, fontName="Helvetica", fontSize=_fit(line, "Helvetica", 6.8, lw - 40), fillColor=MUTED))
     d.add(String(lx + 34, ly + lh - 40, _clean(f"final decision: {verdict}"), fontName="Helvetica-Bold", fontSize=6.8,
                  fillColor=GOOD if not final or final.gate_passed else WARN))
     # bottom row
@@ -312,7 +332,9 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     gx, gw = xs[2], col_w[2]
     d.add(Rect(gx - 4, row_y - 25, gw + 8, row_h + 29, rx=9, ry=9, fillColor=colors.HexColor("#f0fdf4"),
                strokeColor=colors.HexColor("#86efac"), strokeWidth=0.9, strokeDashArray=[3, 2]))
-    d.add(String(gx + 2, row_y - 20, "GROUP CHAT: RESEARCHER + DRAFTER + VERIFIER", fontName="Helvetica-Bold", fontSize=5.8, fillColor=GOOD))
+    group_label = "GROUP CHAT: RESEARCHER + DRAFTER + VERIFIER"
+    d.add(String(gx + 2, row_y - 20, group_label, fontName="Helvetica-Bold", fontSize=_fit(group_label, "Helvetica-Bold", 5.8, gw - 44),
+                 fillColor=GOOD))
     d.add(String(gx + gw - 2, row_y - 20, _clean(f"{rounds} round(s)"), fontName="Helvetica", fontSize=5.8, fillColor=GOOD, textAnchor="end"))
     sub_w = (gw - 2 * 10) / 3
     group = [("researcher", "Researcher", f"{m.sources_indexed} sources"), ("drafter", "Drafter", "cited drafts"),
@@ -333,10 +355,22 @@ def workflow_diagram(report: FinalReport, width: float) -> Drawing:
     _arrow(d, dx, low, dx, row_y - 0.5, fix_color, dashed=True)
     _label(d, (vx + dx) / 2, low - 1, f"quick fix x{fixes}" if fixes else "quick fix", ORANGE if fixes else MUTED)
     _box(d, xs[3], row_y, col_w[3], row_h, "Synthesizer", f"{m.claims_in_report} claims kept", AGENT_COLORS["synthesizer"])
-    _box(d, xs[4], row_y, col_w[4], row_h, "Publish", "redact . seal", AGENT_COLORS["output_guard"])
+    audits = report.report_audits
+    last_audit = audits[-1] if audits else None
+    _box(d, xs[4], row_y, col_w[4], row_h, "Report Approver",
+         f"{last_audit.supported}/{last_audit.judged} sentences" if last_audit else "not enabled", AGENT_COLORS["report_approver"])
+    _box(d, xs[5], row_y, col_w[5], row_h, "Publish", "redact . seal", AGENT_COLORS["output_guard"])
+    report_fixes = sum(a.decision == "fix" for a in audits)
+    fix_c = ORANGE if report_fixes else SUBTLE
+    ax, sx2, low2 = xs[4] + col_w[4] / 2, xs[3] + col_w[3] / 2, row_y - 9
+    d.add(Line(ax, row_y, ax, low2, strokeColor=fix_c, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    d.add(Line(ax, low2, sx2, low2, strokeColor=fix_c, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    _arrow(d, sx2, low2, sx2, row_y - 0.5, fix_c, dashed=True)
+    _label(d, (ax + sx2) / 2, low2 - 1, f"fix x{report_fixes}" if report_fixes else "fix", ORANGE if report_fixes else MUTED)
     mid = row_y + row_h / 2
     _arrow(d, xs[0] + col_w[0] + 1, mid, xs[1] - 1, mid)
     _arrow(d, xs[3] + col_w[3] + 1, mid, xs[4] - 1, mid)
+    _arrow(d, xs[4] + col_w[4] + 1, mid, xs[5] - 1, mid)
     # planner <-> master
     pcx = xs[1] + col_w[1] / 2
     _arrow(d, pcx - 8, row_y + row_h, pcx - 8, ly + lh * 0.65, SUBTLE)
@@ -504,8 +538,10 @@ def _render(
 
     tiles = [
         ("Grounding", _pct(m.grounding_rate_final), f"first draft {_pct(m.grounding_rate_pre)} . bar {_pct(g_bar)}", status_bg(m.grounding_rate_final, g_bar)),
-        ("Coverage", _pct(m.coverage_score), f"sub-questions answered . bar {_pct(c_bar)}", status_bg(m.coverage_score, c_bar)),
-        ("Citation precision", _pct(m.citation_precision), "cited claims entailed", status_bg(m.citation_precision, 0.8)),
+        ("Coverage", _pct(m.coverage_score), f"answered . bar {_pct(c_bar)}", status_bg(m.coverage_score, c_bar)),
+        ("Report check", f"{report.report_audits[-1].supported}/{report.report_audits[-1].judged}" if report.report_audits else "-",
+         (f"sentences . {m.report_sentences_fixed} fixed . {m.report_sentences_removed} cut" if report.report_audits else "not enabled"),
+         status_bg(m.report_groundedness, 1.0) if report.report_audits and m.report_groundedness is not None else PAPER),
         ("Quotes verified", _pct(m.quote_verification_rate), "located verbatim in source", status_bg(m.quote_verification_rate, 0.9)),
         ("Claims published", str(m.claims_in_report), f"of {m.total_claims_evaluated} checked", GOOD_SOFT if m.claims_in_report else WARN_SOFT),
         ("Claims stopped", str(m.claims_removed), ", ".join(f"{v} {k}" for k, v in stopped_by.most_common(2)) or "none", WARN_SOFT),
@@ -521,15 +557,18 @@ def _render(
     else:
         chain_state = "Hash chain not verified in this export"
     head = chain_info.get("head") or (g.audit_chain_head if g else None) or "-"
+    audit_note = (f" The Report Approver re-checked each cited sentence: {report.report_audits[0].supported}/"
+                  f"{report.report_audits[0].judged} passed first time, {m.report_sentences_fixed} fixed, "
+                  f"{m.report_sentences_removed} removed." if report.report_audits else "")
     published = ("Every published sentence passed entailment against a verbatim span of its cited source"
                  if m.claims_in_report else "No claim cleared verification, so nothing is stated as fact; the gaps are disclosed")
     seal = [
         Paragraph(f"<b>Verification seal.</b> {_x(chain_state)}. {published}, and every decision is recorded in a SHA-256 "
-                  "hash-chained audit trail.", s["body"]),
+                  "hash-chained audit trail." + _x(audit_note), s["body"]),
         Spacer(1, 3),
         _p(f"Chain head {head}", s["small"]),
     ]
-    story += [Spacer(1, 2), _callout(seal, width, bg=GOOD_SOFT, bar=GOOD), Spacer(1, 7 * mm),
+    story += [Spacer(1, 2), _callout(seal, width, bg=GOOD_SOFT, bar=GOOD), Spacer(1, 5 * mm),
               _p("How this report was produced", s["h2"]), workflow_diagram(report, width),
               NextPageTemplate("body"), PageBreak()]
 
@@ -585,6 +624,33 @@ def _render(
                          Paragraph(f'<font color="{"#b45309" if rr.decision == "another_round" else "#15803d"}"><b>{_x(decision)}</b></font>{fixed}', s["cell"]),
                          Paragraph(_x(rr.rationale) + ins, s["cell"])])
         story.append(_table(rows, [width * 0.07, width * 0.15, width * 0.15, width * 0.13, width * 0.50]))
+
+    if report.report_audits:
+        story += [CondPageBreak(40 * mm), Spacer(1, 8), _p("Report check by the Report Approver", s["h2"])]
+        first = report.report_audits[0]
+        story.append(_p(
+            f"Synthesis rewrites verified claims into prose, so the Report Approver re-checks every cited sentence against the "
+            f"sources it cites. First check: {first.supported} of {first.judged} supported ({_pct(first.groundedness)}). After "
+            f"{len(report.report_audits) - 1} fix round(s) with the Synthesizer: {m.report_sentences_fixed} sentence(s) fixed, "
+            f"{m.report_sentences_removed} removed, report grounding {_pct(m.report_groundedness)}. Sentences stating a conflict "
+            f"between sources were kept; the contradiction radar had already validated both quotes."
+            + (f" {report.report_audits[-1].unchecked} sentence(s) could not be checked because the Mesh call failed; they restate "
+               "verified claims and are kept, flagged as unchecked." if report.report_audits[-1].unchecked else ""), s["body"]))
+        shown = ("failed", "fixed", "removed", "unchecked")
+        changed = [x for a in report.report_audits for x in a.sentences if x.status in shown]
+        if changed:
+            rows = [[_p(h, s["cellh"]) for h in ("CHECK", "SENTENCE", "OUTCOME", "WHY")]]
+            hexes = {"failed": "#b45309", "fixed": "#15803d", "removed": "#b91c1c", "unchecked": "#0369a1"}
+            for a in report.report_audits:
+                for x in a.sentences:
+                    if x.status in shown:
+                        outcome = "sent back" if x.status == "failed" and a.decision == "fix" else x.status
+                        rows.append([_p(str(a.round), s["cellb"]), _p(x.text, s["cell"]),
+                                     Paragraph(f'<font color="{hexes[x.status]}"><b>{_x(outcome)}</b></font>', s["cell"]),
+                                     _p(x.reason or "-", s["cell"])])
+            story += [Spacer(1, 4), _table(rows, [width * 0.09, width * 0.46, width * 0.12, width * 0.33])]
+        else:
+            story += [Spacer(1, 4), _callout([_p("Every cited sentence was supported on the first check.", s["body"])], width, bg=GOOD_SOFT, bar=GOOD)]
 
     # -- 3 verification dashboard ------------------------------------------------------------
     story += [CondPageBreak(80 * mm), Spacer(1, 10),

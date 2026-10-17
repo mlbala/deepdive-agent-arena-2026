@@ -16,6 +16,9 @@ and the loop-back edge end-to-end.
 
 `reject_first_plan=True` makes the Master Approver raise a blocking issue on the first plan, which
 exercises the Planner <-> Master Approver revision loop.
+
+`embellish_report=True` makes the Synthesizer add one cited but unsupported sentence to the executive
+summary, which exercises the Report Approver -> Synthesizer fix loop.
 """
 
 from __future__ import annotations
@@ -90,9 +93,12 @@ class HeuristicMeshSimulator:
 
     model_label = "offline-heuristic-simulator"
 
-    def __init__(self, *, hallucinate_first_draft: bool = False, reject_first_plan: bool = False) -> None:
+    def __init__(
+        self, *, hallucinate_first_draft: bool = False, reject_first_plan: bool = False, embellish_report: bool = False
+    ) -> None:
         self.hallucinate_first_draft = hallucinate_first_draft
         self.reject_first_plan = reject_first_plan
+        self.embellish_report = embellish_report
         self.calls_by_role: dict[str, int] = {}
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.embeddings = SimpleNamespace(create=self._embed)
@@ -354,14 +360,30 @@ class HeuristicMeshSimulator:
         limitations = [f"{removed} drafted claim(s) were removed because verification failed."] if removed else []
         if p.get("low_authority_sources"):
             limitations.append("Some evidence comes from low-authority sources.")
+        if self.embellish_report and summary:
+            first_source = re.findall(r"SRC-\d+", summary[0])[:1]
+            if first_source:
+                summary.append(f"Experts agree this trend will reshape every global market within five years [{first_source[0]}].")
         return {
             "title": f"Research brief: {_core(p.get('research_question', ''))}",
-            "executive_summary": " ".join(summary[:4])
+            "executive_summary": " ".join(summary[:5])
             or "The available evidence was insufficient to answer the research question.",
             "key_findings": findings[:6],
             "sections": sections,
             "limitations": limitations,
         }
+
+    def _synthesizer_revise(self, p: dict[str, Any]) -> dict[str, Any]:
+        """Replace each rejected sentence with the closest verified claim, or drop it."""
+        claims = p.get("verified_claims", [])
+        fixes = []
+        for rejected in p.get("rejected_sentences", []):
+            best = max(claims, key=lambda c: _overlap(rejected["sentence"], c["claim"]), default=None)
+            if best is not None and _overlap(rejected["sentence"], best["claim"]) >= 0.2:
+                fixes.append({"sid": rejected["sid"], "text": f"{best['claim'].rstrip('.')} [{', '.join(best['citations'])}]."})
+            else:
+                fixes.append({"sid": rejected["sid"], "text": ""})
+        return {"fixes": fixes}
 
     def _followup(self, p: dict[str, Any]) -> dict[str, Any]:
         best: tuple[float, str | None, str | None] = (0.0, None, None)

@@ -28,6 +28,7 @@ from src.schemas.domain import (
     IterationMetrics,
     PlanReview,
     RefinementQuery,
+    ReportAudit,
     RoundReview,
     SourceDocument,
     SubQuestion,
@@ -234,12 +235,14 @@ def round_decision(run_id: str, review: RoundReview, *, max_iterations: int) -> 
     )
 
 
-def report_handoff(run_id: str, report: FinalReport) -> AgentMessage:
+def report_handoff(run_id: str, report: FinalReport, *, to: str = "output_guard") -> AgentMessage:
     m = report.metrics
+    ask = ("Report Approver, please check every sentence against its sources." if to == "report_approver"
+           else "Output shield, please review before publishing.")
     text = (f"Report written from {m.claims_in_report} verified claim(s); {m.claims_removed} withheld; "
-            f"{m.contradictions} conflict(s) disclosed. Output shield, please review before publishing.")
+            f"{m.contradictions} conflict(s) disclosed. {ask}")
     return AgentMessage(
-        run_id=run_id, channel="publish", round=1, sender="synthesizer", to=["output_guard"], kind="report",
+        run_id=run_id, channel="publish", round=1, sender="synthesizer", to=[to], kind="report",
         text=text, items=[_clip(x, 170) for x in report.limitations[:3]],
     )
 
@@ -250,4 +253,57 @@ def publish_notice(run_id: str, governance: GovernanceSummary) -> AgentMessage:
     return AgentMessage(
         run_id=run_id, channel="publish", round=1, sender="output_guard", to=[], kind="decision", text=text,
         passed=True,
+    )
+
+
+_WHERE = {"executive_summary": "executive summary"}
+
+
+def _where(location: str) -> str:
+    if location.startswith("key_finding:"):
+        return f"key finding {int(location.split(':')[1]) + 1}"
+    if location.startswith("section:"):
+        return location.split(":", 1)[1]
+    return _WHERE.get(location, location)
+
+
+def audit_verdict(run_id: str, audit: ReportAudit, *, max_fixes: int) -> AgentMessage:
+    """Report Approver -> Synthesizer (fix request) or -> Output shield (approved / removed)."""
+    failing = [x for x in audit.sentences if x.status in ("failed", "removed")]
+    fixed = sum(x.status == "fixed" for x in audit.sentences)
+    base = f"{audit.supported} of {audit.judged} cited sentence(s) are supported by verbatim spans of their sources"
+    if audit.decision == "fix":
+        text = (f"Report check {audit.round}: {len(failing)} of {audit.judged} cited sentence(s) are not supported by the "
+                f"sources they cite. Synthesizer, please fix them from the verified claims (fix {audit.round} of at most {max_fixes}).")
+        to, kind = ["synthesizer"], "fix_request"
+    elif audit.decision == "remove":
+        text = (f"Report check {audit.round}: {len(failing)} sentence(s) are still unsupported, so I removed them before "
+                f"publication. {base}. Output shield, the report is ready.")
+        to, kind = ["output_guard"], "decision"
+    else:
+        extra = f" ({fixed} fixed by the Synthesizer)" if fixed else ""
+        text = f"Report approved: {base}{extra}. Output shield, it is ready to publish."
+        to, kind = ["output_guard"], "approval"
+    if audit.unchecked:
+        text += (f" {audit.unchecked} sentence(s) could not be checked because the Mesh call failed; they restate verified "
+                 "claims, so they stay in the report flagged as unchecked.")
+    items = [f"{x.sid} · {_where(x.location)}: “{_clip(x.text, 150)}” — {_clip(x.reason or 'not supported', 140)}" for x in failing[:6]]
+    return AgentMessage(
+        run_id=run_id, channel="publish", round=audit.round, sender="report_approver", to=to, kind=kind,
+        text=text, items=items, score=audit.groundedness, threshold=1.0, passed=audit.passed,
+        refs=sorted({c for x in failing for c in x.cited_source_ids})[:8],
+    )
+
+
+def report_fix_handoff(run_id: str, *, audit_round: int, revised: int, dropped: int, unchanged: int = 0) -> AgentMessage:
+    parts = [f"revised {revised} sentence(s) using only the verified claims"]
+    if unchanged:
+        parts.append(f"kept {unchanged} as written for a second check")
+    if dropped:
+        parts.append(f"dropped {dropped} that no verified claim supports")
+    body = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+    text = body[0].upper() + body[1:] + ". Report Approver, please re-check."
+    return AgentMessage(
+        run_id=run_id, channel="publish", round=audit_round, sender="synthesizer", to=["report_approver"], kind="fix",
+        text=text,
     )

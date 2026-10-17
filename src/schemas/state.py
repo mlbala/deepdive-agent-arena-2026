@@ -20,6 +20,7 @@ from src.schemas.domain import (
     AgentInstruction,
     AgentMessage,
     AtomicClaim,
+    AuditedSentence,
     AuditEvent,
     ContradictionItem,
     DraftSection,
@@ -28,6 +29,7 @@ from src.schemas.domain import (
     IterationMetrics,
     PlanReview,
     RefinementQuery,
+    ReportAudit,
     RoundReview,
     SourceDocument,
     SubQuestion,
@@ -82,6 +84,13 @@ class ResearchState(TypedDict, total=False):
     exchange: int  # quick fixes done in the current round
     group_next: str  # where the Verifier sends the work next: drafter (quick fix) | master (round report)
     round_first_check: IterationMetrics | None  # the round's first check, before quick fixes
+
+    # --- Report Approver (Synthesizer <-> Report Approver) ----------------------
+    report_audits: Annotated[list[ReportAudit], append_list]
+    audit_round: int
+    audit_next: str  # synthesizer (fix) | output_guard (publish)
+    report_fix_request: list[AuditedSentence]  # sentences the Synthesizer must fix
+    report_dropped: Annotated[list[str], append_list]  # sentences the Synthesizer dropped while fixing
 
     # --- Retrieval (keyed, merged across iterations) --------------------------
     sources: Annotated[dict[str, SourceDocument], merge_dicts]          # source_id -> doc
@@ -144,6 +153,11 @@ def initial_state(
         exchange=0,
         group_next="",
         round_first_check=None,
+        report_audits=[],
+        audit_round=0,
+        audit_next="",
+        report_fix_request=[],
+        report_dropped=[],
         sources={},
         evidence={},
         evidence_by_sq={},

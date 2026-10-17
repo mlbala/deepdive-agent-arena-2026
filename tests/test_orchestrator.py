@@ -27,7 +27,8 @@ def test_graph_topology_has_cyclic_verification_edge(make_orchestrator):
     assert ("planner", "master", False) in edges, "the Master Approver is the hub"
     assert ("verifier", "master", True) in edges and ("verifier", "drafter", True) in edges, "round report | quick fix"
     assert {("master", "planner", True), ("master", "researcher", True), ("master", "synthesizer", True)} <= edges
-    assert ("synthesizer", "output_guard", False) in edges and ("output_guard", "__end__", False) in edges
+    assert ("synthesizer", "report_approver", False) in edges and ("output_guard", "__end__", False) in edges
+    assert {("report_approver", "synthesizer", True), ("report_approver", "output_guard", True)} <= edges, "report fix loop"
     assert "master -.-> researcher" in orchestrator.mermaid()
 
 
@@ -74,7 +75,7 @@ def test_audit_trail_is_ordered_live_and_persisted(make_orchestrator):
     assert live[-1].event_type is AuditEventType.RUN_COMPLETED
     started = [e.node for e in live if e.event_type is AuditEventType.NODE_STARTED]
     assert started[:7] == ["input_guard", "planner", "master", "researcher", "drafter", "verifier", "master"]
-    assert started[-2:] == ["synthesizer", "output_guard"]
+    assert started[-3:] == ["synthesizer", "report_approver", "output_guard"]
     assert any(e.event_type is AuditEventType.ROUTE_DECISION for e in live)
     assert {e.event_type for e in live} >= {
         AuditEventType.PLAN_CREATED, AuditEventType.SEARCH_EXECUTED, AuditEventType.SOURCE_INDEXED,
@@ -87,7 +88,7 @@ def test_stream_yields_nodes_in_graph_order(make_orchestrator):
     orchestrator, _, _ = make_orchestrator()
     nodes = [node for node, _update in orchestrator.stream(RBI_Q)]
     assert nodes[:7] == ["input_guard", "planner", "master", "researcher", "drafter", "verifier", "master"]
-    assert nodes[-3:] == ["synthesizer", "output_guard", "__end__"]
+    assert nodes[-4:] == ["synthesizer", "report_approver", "output_guard", "__end__"]
 
 
 def test_uploaded_documents_join_the_evidence_pool(make_orchestrator):
@@ -225,8 +226,8 @@ def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
     from eval.simulated_llm import HeuristicMeshSimulator
 
     for exchanges in (2, 0):  # quick-fix path inside a round, and the research loop-back path
-        looping, _, _ = make_orchestrator(client=HeuristicMeshSimulator(hallucinate_first_draft=True), grounding_threshold=0.9,
-                                          group_chat_exchanges=exchanges)
+        looping, _, _ = make_orchestrator(client=HeuristicMeshSimulator(hallucinate_first_draft=True, embellish_report=True),
+                                          grounding_threshold=0.9, group_chat_exchanges=exchanges)
         for node, update in looping.stream("How much solar PV capacity was added globally in 2023?"):
             if node in catalog.NODE_WRITES:
                 assert set(update) <= set(catalog.NODE_WRITES[node]), (node, set(update) - set(catalog.NODE_WRITES[node]))

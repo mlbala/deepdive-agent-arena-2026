@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     mesh_embedding_model: str = "openai/text-embedding-3-small"
     planner_model: str | None = None
     master_model: str | None = None
+    report_approver_model: str | None = None
     researcher_model: str | None = None
     drafter_model: str | None = None
     verifier_model: str | None = None
@@ -80,6 +81,10 @@ class Settings(BaseSettings):
     max_plan_revisions: int = Field(default=2, ge=0, le=4)
     master_extra_rounds: int = Field(default=1, ge=0, le=2)  # extra passes the Master Approver may add after the gate passes
     group_chat_exchanges: int = Field(default=2, ge=0, le=4)  # Verifier -> Drafter quick fixes per round, before the round report
+
+    # --- Report Approver (final report verification) -------------------------------
+    report_audit: bool = True  # re-verify every sentence of the synthesized report before publication
+    report_audit_fixes: int = Field(default=1, ge=0, le=3)  # Report Approver -> Synthesizer fix rounds, then failing sentences are removed
 
     # --- Storage & concurrency ----------------------------------------------
     database_url: str = "sqlite:///./data/deepdive.db"
@@ -173,7 +178,7 @@ class Settings(BaseSettings):
         explicit = self._csv(self.allowed_models)
         if explicit:
             return frozenset(explicit)
-        agents = ("planner", "master", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
+        agents = ("planner", "master", "report_approver", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
         return frozenset({self.mesh_default_model, self.mesh_embedding_model, *(self.model_for(a) for a in agents)})
 
     @property
@@ -213,6 +218,8 @@ class Settings(BaseSettings):
             "max_plan_revisions": self.max_plan_revisions,
             "master_extra_rounds": self.master_extra_rounds,
             "group_chat_exchanges": self.group_chat_exchanges,
+            "report_audit": self.report_audit,
+            "report_audit_fixes": self.report_audit_fixes,
             "policy_version": self.policy_version,
             "auth_required": bool(self.api_key_set),
         }
@@ -242,6 +249,8 @@ class Settings(BaseSettings):
                 "max_plan_revisions": self.max_plan_revisions,
                 "master_extra_rounds": self.master_extra_rounds,
                 "group_chat_exchanges": self.group_chat_exchanges,
+                "report_audit": self.report_audit,
+                "report_audit_fixes": self.report_audit_fixes,
                 "coverage_threshold": self.coverage_threshold,
                 "grounding_threshold": self.grounding_threshold,
             },

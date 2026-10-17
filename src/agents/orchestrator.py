@@ -3,7 +3,7 @@
     START -> input_guard --(blocked)--> END
                  |
                  v
-              planner <--revise-- master (Master Approver) --approve--> synthesizer -> output_guard -> END
+              planner <--revise-- master (Master Approver) --approve--> synthesizer <-> report_approver -> output_guard -> END
                  |                  ^  |
                  +------plan--------+  | dispatch / another round
                                     |  v
@@ -17,6 +17,10 @@ and reviews each round's report: below the quality gate's bar it must send the g
 instructions per agent); above it, it approves the work for the Synthesizer or adds up to
 MASTER_EXTRA_ROUNDS targeted passes. Every node posts its real hand-off to the agents' group chat
 (`state["group_chat"]`, AGENT_MESSAGE audit events), so the whole conversation is auditable.
+
+`report_approver` re-checks every cited sentence of the synthesized report against its sources (the
+Verifier's guards) and sends failing sentences back to the Synthesizer for REPORT_AUDIT_FIXES fix
+rounds; whatever still fails is removed before the output shield publishes the report.
 
 `input_guard` runs the deterministic input shield (prompt injection, harmful requests,
 PII/secret redaction) and the Mesh-backed Guardian classifier; a blocked question ends the
@@ -50,11 +54,23 @@ from src.agents.followup import FollowUpAgent
 from src.agents.guardian import GuardianAgent
 from src.agents.master import MasterApproverAgent
 from src.agents.planner import PlannerAgent
+from src.agents.report_approver import (
+    ReportApproverAgent,
+    finalize_audit,
+    rewrite_report,
+    verified_index,
+)
 from src.agents.researcher import ResearcherAgent
-from src.agents.synthesizer import SynthesizerAgent
+from src.agents.synthesizer import SynthesizerAgent, guard_text, verified_material
 from src.agents.verifier import VerifierAgent
 from src.core.config import Settings
-from src.core.exceptions import DeepDiveError, GuardrailBlockedError, OrchestrationError
+from src.core.exceptions import (
+    DeepDiveError,
+    GuardrailBlockedError,
+    MeshStructuredOutputError,
+    MeshTransientError,
+    OrchestrationError,
+)
 from src.core.mesh_gateway import MeshGateway
 from src.guardrails.shields import InputGuard, OutputGuard
 from src.schemas.domain import (
@@ -79,8 +95,8 @@ from src.tools.web_search import WebRetriever
 logger = logging.getLogger(__name__)
 
 Route = Literal["researcher", "synthesizer"]
-NODES = ("input_guard", "planner", "master", "researcher", "drafter", "verifier", "synthesizer", "output_guard")
-LLM_AGENTS = ("guardian", "planner", "master", "researcher", "drafter", "verifier", "synthesizer")
+NODES = ("input_guard", "planner", "master", "researcher", "drafter", "verifier", "synthesizer", "report_approver", "output_guard")
+LLM_AGENTS = ("guardian", "planner", "master", "researcher", "drafter", "verifier", "synthesizer", "report_approver")
 DISCLAIMER = (
     "AI-generated research brief. Every published claim passed entailment checking against a verbatim span of "
     "its cited source, but sources can be wrong or outdated: verify decision-critical facts against the cited originals."
@@ -120,6 +136,11 @@ def route_group(state: ResearchState) -> Literal["drafter", "master"]:
     return "drafter" if state.get("group_next") == "drafter" else "master"
 
 
+def route_report(state: ResearchState) -> Literal["synthesizer", "output_guard"]:
+    """Conditional edge out of the Report Approver: a fix round with the Synthesizer, or publication."""
+    return "synthesizer" if state.get("audit_next") == "synthesizer" else "output_guard"
+
+
 def route_master(state: ResearchState) -> Literal["planner", "researcher", "synthesizer"]:
     """Conditional edge out of the Master Approver: revise the plan, run a group round, or synthesize."""
     decision = state.get("master_decision")
@@ -155,6 +176,7 @@ class ResearchOrchestrator:
         self.drafter = DrafterAgent(gateway, settings)
         self.verifier = VerifierAgent(gateway, settings, vector_store)
         self.synthesizer = SynthesizerAgent(gateway, settings)
+        self.report_approver = ReportApproverAgent(gateway, settings, vector_store)
         self.followup_agent = FollowUpAgent(gateway, settings, vector_store)
         self.guardian = GuardianAgent(gateway, settings)
         self.input_guard = InputGuard(settings)
@@ -179,6 +201,8 @@ class ResearchOrchestrator:
         graph.add_node("verifier", self.verifier_node)
         graph.add_node("synthesizer", self.synthesizer_node)
         graph.add_node("output_guard", self.output_guard_node)
+        if self.settings.report_audit:
+            graph.add_node("report_approver", self.report_approver_node)
         graph.add_edge(START, "input_guard")
         graph.add_conditional_edges("input_guard", route_after_guard, {"planner": "planner", "__end__": END})
         graph.add_edge("planner", "master")
@@ -188,7 +212,13 @@ class ResearchOrchestrator:
         graph.add_edge("researcher", "drafter")
         graph.add_edge("drafter", "verifier")
         graph.add_conditional_edges("verifier", route_group, {"drafter": "drafter", "master": "master"})
-        graph.add_edge("synthesizer", "output_guard")
+        if self.settings.report_audit:
+            graph.add_edge("synthesizer", "report_approver")
+            graph.add_conditional_edges(
+                "report_approver", route_report, {"synthesizer": "synthesizer", "output_guard": "output_guard"}
+            )
+        else:
+            graph.add_edge("synthesizer", "output_guard")
         graph.add_edge("output_guard", END)
         return graph.compile()
 
@@ -645,6 +675,8 @@ class ResearchOrchestrator:
         }
 
     def synthesizer_node(self, state: ResearchState) -> dict[str, Any]:
+        if state.get("report_fix_request"):
+            return self._synthesizer_fix(state)
         col = self._collector(state, "synthesizer")
         col.emit(AuditEventType.NODE_STARTED, "Synthesizer compiling the verified report")
         report = self.synthesizer.synthesize(
@@ -677,9 +709,100 @@ class ResearchOrchestrator:
             "plan_reviews": reviews,
             "round_reviews": state.get("round_reviews", []),
         })
-        message = self._post(col, chat.report_handoff(state["run_id"], report))
+        message = self._post(col, chat.report_handoff(
+            state["run_id"], report, to="report_approver" if self.settings.report_audit else "output_guard"
+        ))
         col.emit(AuditEventType.NODE_COMPLETED, "Synthesizer finished")
         return {"final_report": report, "group_chat": [message], "audit_log": col.events}
+
+    def _synthesizer_fix(self, state: ResearchState) -> dict[str, Any]:
+        audit_round = state.get("audit_round", 1)
+        col = self._collector(state, "synthesizer", audit_round)
+        failing = state["report_fix_request"]
+        col.emit(AuditEventType.NODE_STARTED, f"Synthesizer fixing {len(failing)} sentence(s) the Report Approver rejected",
+                 mode="fix", audit_round=audit_round)
+        verified, allowed = verified_material(state.get("claims", {}), state.get("verifications", {}), state.get("contradictions", []))
+        try:
+            fixes = self.synthesizer.revise(state["run_id"], query=state["query"], failing=failing, verified=verified)
+        except (MeshTransientError, MeshStructuredOutputError) as exc:
+            col.emit(AuditEventType.WARNING, f"Report fix unavailable ({type(exc).__name__}); the Report Approver will remove what fails")
+            fixes = {}
+        changes: dict[str, str | None] = {}
+        dropped: list[str] = []
+        unchanged = 0
+        for item in failing:
+            kept, _ = guard_text(fixes.get(item.sid, ""), allowed) if fixes.get(item.sid) else ("", [])
+            changes[item.sid] = kept or None  # a fix must still cite only verified sources, else it is dropped
+            if not kept:
+                dropped.append(item.text)
+            elif kept.strip() == item.text.strip():
+                unchanged += 1  # the Synthesizer stands by it; the Report Approver judges it again
+        revised = len(failing) - len(dropped) - unchanged
+        report = rewrite_report(state["final_report"], changes)  # type: ignore[arg-type]
+        message = self._post(col, chat.report_fix_handoff(
+            state["run_id"], audit_round=audit_round, revised=revised, dropped=len(dropped), unchanged=unchanged
+        ))
+        col.emit(AuditEventType.NODE_COMPLETED, f"Synthesizer revised {revised}, kept {unchanged}, dropped {len(dropped)}",
+                 mode="fix", audit_round=audit_round, revised=revised, dropped=len(dropped), unchanged=unchanged)
+        return {"final_report": report, "report_fix_request": [], "report_dropped": dropped, "group_chat": [message],
+                "audit_log": col.events}
+
+    def report_approver_node(self, state: ResearchState) -> dict[str, Any]:
+        audit_round = state.get("audit_round", 0) + 1
+        col = self._collector(state, "report_approver", audit_round)
+        col.emit(AuditEventType.NODE_STARTED, f"Report Approver checking every report sentence (round {audit_round})",
+                 audit_round=audit_round)
+        report: FinalReport = state["final_report"]  # type: ignore[assignment]
+        known = {s.text: s for a in state.get("report_audits", []) for s in a.sentences if s.status in ("supported", "fixed", "skipped")}
+        audit = self.report_approver.audit(
+            state["run_id"], report, state.get("sources", {}), audit_round=audit_round, known=known,
+            verified=verified_index(state.get("claims", {}), state.get("verifications", {})), collector=col,
+        )
+        fixes_left = (
+            audit_round <= self.settings.report_audit_fixes
+            and not self.gateway.budget_status(state["run_id"])["soft_limit_reached"]
+        )
+        audit = finalize_audit(audit, fixes_left=fixes_left)
+        update: dict[str, Any] = {}
+        if audit.decision == "remove":
+            report = rewrite_report(report, {s.sid: None for s in audit.sentences if s.status == "removed"})
+        if audit.decision in ("approve", "remove"):
+            audits = [*state.get("report_audits", []), audit]
+            usage = self.gateway.usage_for(state["run_id"])  # include the Report Approver's own Mesh calls
+            removed = sum(s.status == "removed" for s in audit.sentences) + len(state.get("report_dropped", []))
+            judged_left = audit.judged - sum(s.status == "removed" for s in audit.sentences)
+            report = report.model_copy(update={
+                "report_audits": audits,
+                "metrics": report.metrics.model_copy(update={
+                    "report_groundedness_initial": audits[0].groundedness,
+                    # nothing judged because Mesh failed is unknown grounding, not 100%
+                    "report_groundedness": (round(audit.supported / judged_left, 4) if judged_left
+                                            else None if audit.unchecked else 1.0),
+                    "report_sentences_fixed": sum(s.status == "fixed" for s in audit.sentences),
+                    "report_sentences_removed": removed,
+                    "llm_calls": usage["llm_calls"],
+                    "total_tokens": usage["total_tokens"],
+                    "llm_latency_ms": usage["latency_ms"],
+                }),
+            })
+            update["final_report"] = report
+        col.emit(
+            AuditEventType.REPORT_AUDITED,
+            f"Report Approver round {audit_round}: {audit.supported}/{audit.judged} cited sentences supported -> {audit.decision}",
+            **audit.model_dump(mode="json"),
+        )
+        message = self._post(col, chat.audit_verdict(state["run_id"], audit, max_fixes=self.settings.report_audit_fixes))
+        col.emit(AuditEventType.NODE_COMPLETED, f"Report Approver finished round {audit_round}: {audit.decision}",
+                 audit_round=audit_round)
+        return {
+            **update,
+            "report_audits": [audit],
+            "audit_round": audit_round,
+            "audit_next": "synthesizer" if audit.decision == "fix" else "output_guard",
+            "report_fix_request": [s for s in audit.sentences if s.status == "failed"] if audit.decision == "fix" else [],
+            "group_chat": [message],
+            "audit_log": col.events,
+        }
 
     def output_guard_node(self, state: ResearchState) -> dict[str, Any]:
         col = self._collector(state, "output_guard")
@@ -811,7 +934,7 @@ class ResearchOrchestrator:
             for chunk in self.graph.stream(
                 state,
                 config={"recursion_limit": 10 + (5 + 2 * self.settings.group_chat_exchanges) * iterations
-                        + 2 * (self.settings.max_plan_revisions + 1)},
+                        + 2 * (self.settings.max_plan_revisions + 1) + 2 * (self.settings.report_audit_fixes + 1)},
                 stream_mode=["updates", "values"],
             ):
                 mode, payload = chunk

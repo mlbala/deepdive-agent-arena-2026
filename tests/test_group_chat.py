@@ -211,7 +211,7 @@ def test_group_chat_mirrors_the_real_handoffs_and_instructions_are_used(make_orc
     gap_feedback = [line for e in live if e.event_type is AuditEventType.LOOP_BACK for g in e.payload["gaps"] for line in g["feedback"]]
     assert any("2031" in line for line in gap_feedback)
 
-    assert [m.sender for m in chat if m.channel == "publish"] == ["synthesizer", "output_guard"]
+    assert [m.sender for m in chat if m.channel == "publish"] == ["synthesizer", "report_approver", "output_guard"]
     assert [r.decision for r in state["final_report"].round_reviews] == ["another_round", "approve"]
 
 

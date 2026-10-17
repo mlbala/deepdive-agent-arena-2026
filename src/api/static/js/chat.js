@@ -11,6 +11,7 @@ export const AGENTS = [
   { id: 'drafter', label: 'Drafter', role: 'cited drafts', icon: 'pen', color: 'rgb(var(--pink))' },
   { id: 'verifier', label: 'Verifier', role: 'claim-by-claim proof', icon: 'verify', color: 'rgb(var(--green))' },
   { id: 'synthesizer', label: 'Synthesizer', role: 'verified-only report', icon: 'spark', color: 'rgb(var(--accent))' },
+  { id: 'report_approver', label: 'Report Approver', role: 'verifies every sentence', icon: 'reportcheck', color: 'rgb(var(--teal))' },
   { id: 'output_guard', label: 'Publish', role: 'output shield · seal', icon: 'shieldOut', color: 'rgb(var(--orange))' },
 ];
 export const AGENT = Object.fromEntries(AGENTS.map((a) => [a.id, a]));
@@ -21,12 +22,13 @@ export const CHAT_AGENT = {
   lead: { ...AGENT.master },
   quality_gate: { id: 'quality_gate', label: 'Quality gate', icon: 'route', color: 'rgb(var(--gray))' },
 };
-const MENTION = { 'Master Approver': 'master', Planner: 'planner', Approver: 'approver', Researcher: 'researcher', Drafter: 'drafter', Verifier: 'verifier', Synthesizer: 'synthesizer', 'Output shield': 'output_guard' };
+const MENTION = { 'Report Approver': 'report_approver', 'Master Approver': 'master', Planner: 'planner', Approver: 'approver', Researcher: 'researcher', Drafter: 'drafter', Verifier: 'verifier', Synthesizer: 'synthesizer', 'Output shield': 'output_guard' };
 export const svgIcon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
 
 const KIND_LABEL = { proposal: 'Proposal', critique: 'Changes requested', revision: 'Revision', approval: 'Approved', evidence: 'Evidence', draft: 'Drafts', verdict: 'Verdicts', decision: 'Decision', report: 'Report' };
 function kindPill(m) {
   const again = (m.to || []).includes('researcher');
+  if (m.sender === 'report_approver') return m.kind === 'approval' ? ['Report approved', 'good'] : m.kind === 'fix_request' ? ['Fix request', 'warn'] : ['Removed failing sentences', 'warn'];
   if (m.kind === 'approval') return m.passed ? ['Plan approved', 'good'] : ['Plan approved with open issues', 'warn'];
   if (m.kind === 'critique') return ['Changes requested', 'warn'];
   if (m.kind === 'fix_request') return ['Fix request', 'warn'];
@@ -36,13 +38,14 @@ function kindPill(m) {
   if (m.kind === 'decision') return ['Published', 'good'];
   return [KIND_LABEL[m.kind] || m.kind, ''];
 }
-export const roomOf = (m) => (m.channel === 'plan_review' ? `Plan review · version ${m.round}` : m.channel === 'evidence_loop' ? `Group chat · round ${m.round}` : 'Publish');
+export const roomOf = (m) => (m.channel === 'plan_review' ? `Plan review · version ${m.round}` : m.channel === 'evidence_loop' ? `Group chat · round ${m.round}`
+  : m.sender === 'report_approver' || (m.sender === 'synthesizer' && m.kind === 'fix') ? `Report check · round ${m.round}` : 'Publish');
 
 function rich(text) {
   return esc(text)
     .replace(/\bSRC-\d{3,4}\b/g, (id) => `<span class="chip" data-src="${id}">${id}</span>`)
     .replace(/\bSQ-\d+\b/g, (id) => `<span class="sqref">${id}</span>`)
-    .replace(/\b(Master Approver|Planner|Approver|Researcher|Drafter|Verifier|Synthesizer|Output shield)\b/g, (n) => `<span class="mention" style="--c:${CHAT_AGENT[MENTION[n]].color}">${n}</span>`);
+    .replace(/\b(Report Approver|Master Approver|Planner|Approver|Researcher|Drafter|Verifier|Synthesizer|Output shield)\b/g, (n) => `<span class="mention" style="--c:${CHAT_AGENT[MENTION[n]].color}">${n}</span>`);
 }
 
 export function chatMessage(m) {

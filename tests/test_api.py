@@ -142,7 +142,7 @@ def test_pdf_export_contains_report_and_audit_appendix(client, container):
     for marker in ("Executive summary", "Contradiction radar", "Claim verification audit", "Mesh API telemetry",
                    "How this report was produced", "Master Approver", "Plan reviews by the Master Approver",
                    "Round reviews by the Master Approver", "Verification dashboard", "group chat", "Governance and audit trail",
-                   "Hash chain intact"):
+                   "Hash chain intact", "Report check by the Report Approver", "Report Approver"):
         assert marker in text, marker
 
 
@@ -403,7 +403,7 @@ def test_architecture_stats_and_timeline_endpoints(client, container):
 
     chat = client.get(f"/api/runs/{run_id}/chat").json()
     senders = [m["sender"] for m in chat]
-    assert senders[:2] == ["planner", "master"] and senders[-2:] == ["synthesizer", "output_guard"]
+    assert senders[:2] == ["planner", "master"] and senders[-3:] == ["synthesizer", "report_approver", "output_guard"]
     assert {"researcher", "drafter", "verifier"} <= set(senders) and senders.count("master") >= 2
     assert all(m["run_id"] == run_id and m["text"] for m in chat)
     assert client.get("/api/runs/run_missing/chat").status_code == 404

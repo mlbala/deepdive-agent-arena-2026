@@ -24,6 +24,7 @@ export const ICONS = {
   chain: '<rect x="2.5" y="9" width="9" height="6" rx="3"/><rect x="12.5" y="9" width="9" height="6" rx="3"/><path d="M9 12h6"/>',
   stop: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
   master: '<path d="M4 17.5L3 8l5 3.8L12 5l4 6.8L21 8l-1 9.5z"/><path d="M4.5 20.5h15"/><circle cx="12" cy="13.6" r="1.3"/>',
+  reportcheck: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M9.4 14.6l2 2 3.8-4.1"/>',
   approve: '<path d="M12 2.8l2.1 1.5 2.6-.1.8 2.5 2.1 1.5-.8 2.5.8 2.5-2.1 1.5-.8 2.5-2.6-.1L12 21.2l-2.1-1.5-2.6.1-.8-2.5-2.1-1.5.8-2.5-.8-2.5 2.1-1.5.8-2.5 2.6.1z"/><path d="M8.7 12.1l2.2 2.2 4.4-4.5"/>',
   mesh: '<circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 12h4l6-5.2M11 12l6 5.2"/>',
 };
@@ -38,13 +39,14 @@ const NODES = [
   { id: 'index', n: 6, label: 'Evidence index', sub: 'BM25+Chroma spans', kind: 'store', icon: 'db', x: 740, y: 190, w: 150, agent: 'embedder' },
   { id: 'drafter', n: 7, label: 'Drafter', sub: 'cited drafts', kind: 'agent', icon: 'pen', x: 910, y: 190, w: 145, agent: 'drafter' },
   { id: 'verifier', n: 8, label: 'Verifier', sub: 'entail·guards·radar', kind: 'agent', icon: 'verify', x: 1075, y: 190, w: 150, agent: 'verifier' },
-  { id: 'synthesizer', n: 9, label: 'Synthesizer', sub: 'verified-only', kind: 'agent', icon: 'spark', x: 1060, y: 474, w: 160, agent: 'synthesizer' },
-  { id: 'output_guard', n: 10, label: 'Output shield', sub: 'redact · govern', kind: 'guard', icon: 'shieldOut', x: 870, y: 474, w: 160 },
-  { id: 'report', n: 11, label: 'Final report', sub: 'cited·audited·PDF', kind: 'io', icon: 'doc', x: 680, y: 474, w: 160 },
-  { id: 'followup', n: 12, label: 'Follow-up chat', sub: 'grounded Q&A', kind: 'agent', icon: 'chat', x: 480, y: 474, w: 170, agent: 'followup' },
+  { id: 'synthesizer', n: 9, label: 'Synthesizer', sub: 'verified-only', kind: 'agent', icon: 'spark', x: 1070, y: 474, w: 150, agent: 'synthesizer' },
+  { id: 'report_approver', n: 10, label: 'Report Approver', sub: 'verifies every sentence', kind: 'agent', icon: 'reportcheck', x: 885, y: 474, w: 162, agent: 'report_approver' },
+  { id: 'output_guard', n: 11, label: 'Output shield', sub: 'redact · govern', kind: 'guard', icon: 'shieldOut', x: 700, y: 474, w: 160 },
+  { id: 'report', n: 12, label: 'Final report', sub: 'cited·audited·PDF', kind: 'io', icon: 'doc', x: 515, y: 474, w: 160 },
+  { id: 'followup', n: 13, label: 'Follow-up chat', sub: 'grounded Q&A', kind: 'agent', icon: 'chat', x: 320, y: 474, w: 170, agent: 'followup' },
   { id: 'web', label: 'Web search', sub: 'Tavily→DDG→corpus', kind: 'tool', icon: 'globe', x: 600, y: 276, w: 120, h: 46 },
   { id: 'docs', label: 'Your docs', sub: 'PDF·TXT·MD', kind: 'tool', icon: 'upload', x: 740, y: 276, w: 130, h: 46 },
-  { id: 'audit', label: 'Audit trail', sub: 'SHA-256 hash chain', kind: 'store', icon: 'chain', x: 860, y: 606, w: 180 },
+  { id: 'audit', label: 'Audit trail', sub: 'SHA-256 hash chain', kind: 'store', icon: 'chain', x: 690, y: 606, w: 180 },
   { id: 'blocked', label: 'Blocked', sub: 'ends safely', kind: 'end', icon: 'stop', x: 215, y: 296, w: 130, h: 46 },
 ];
 const ROOM = { x: 550, y: 170, w: 682, h: 160, label: 'GROUP CHAT · RESEARCHER + DRAFTER + VERIFIER' };
@@ -65,16 +67,18 @@ const EDGES = [
   { id: 'ver_drafter', d: 'M1112,252 C1112,272 1018,272 1018,254', label: 'quick fix', lx: 1065, ly: 271, kind: 'loop' },
   { id: 'ver_master', d: 'M1150,190 C1150,110 1000,65 860,65', label: 'round report', lx: 1118, ly: 120 },
   { id: 'master_synth', d: 'M860,44 L1200,44 Q1234,44 1234,78 L1234,471 Q1234,505 1222,505', label: 'approved', lx: 1228, ly: 430, anchor: 'end' },
-  { id: 'synth_output', d: 'M1060,505 L1030,505', label: 'report', lx: 1045, ly: 556 },
-  { id: 'output_report', d: 'M870,505 L840,505', label: 'redactions', lx: 855, ly: 556 },
-  { id: 'report_followup', d: 'M680,505 L650,505', label: 'follow-ups', lx: 665, ly: 556 },
-  { id: 'output_audit', d: 'M950,536 L950,606', label: 'hash-chained', lx: 958, ly: 574, kind: 'audit', anchor: 'start' },
+  { id: 'synth_approver', d: 'M1070,505 L1049,505', label: 'report', lx: 1060, ly: 556 },
+  { id: 'approver_synth', d: 'M966,536 C966,588 1145,588 1145,538', label: 'fix', lx: 1056, ly: 588, kind: 'loop' },
+  { id: 'approver_output', d: 'M885,505 L862,505', label: 'approved', lx: 873, ly: 556 },
+  { id: 'output_report', d: 'M700,505 L677,505', label: 'redactions', lx: 688, ly: 556 },
+  { id: 'report_followup', d: 'M515,505 L492,505', label: 'follow-ups', lx: 503, ly: 556 },
+  { id: 'output_audit', d: 'M780,536 L780,606', label: 'hash-chained', lx: 788, ly: 574, kind: 'audit', anchor: 'start' },
 ];
 const GATEWAY = { x: 200, y: 360, w: 1025, h: 30 };
 const CONNECTORS = { // agent node -> point on the Mesh gateway bar
   input_guard: 'M250,252 L250,360', planner: 'M455,252 L455,360', master: 'M560,90 L545,90 L545,360',
   researcher: 'M575,252 L575,360', index: 'M880,252 L880,360', drafter: 'M985,252 L985,360', verifier: 'M1150,252 L1150,360',
-  synthesizer: 'M1140,474 L1140,390', followup: 'M565,474 L565,390',
+  synthesizer: 'M1145,474 L1145,390', report_approver: 'M966,474 L966,390', followup: 'M405,474 L405,390',
 };
 const AGENT_NODE = { guardian: 'input_guard', planner: 'planner', master: 'master', approver: 'master', lead: 'master', researcher: 'researcher', embedder: 'index', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer', followup: 'followup' };
 
@@ -98,6 +102,7 @@ const INFO = {
   drafter: { what: 'Writes 80–220 words per sub-question using only the evidence provided. Every factual sentence must end with [SRC-XXX] citations.', io: 'sub-question + evidence → DraftSection', checks: ['Citations outside the evidence pool are flagged', 'Evidence is treated as untrusted data, never as instructions'], code: 'src/agents/drafter.py' },
   verifier: { what: 'Splits drafts into atomic claims and checks each one against the spans of its cited sources only. Deterministic guards follow: the quote must be found in the source, the source must be one the claim cites, figures must appear in the source, and the source must clear the admissibility floor. A contradiction radar compares sources against each other. Inside the group chat it can send rejected claims straight back to the Drafter for a quick fix (at most twice per round, only while it helps) before the round report goes to the Master Approver.', io: 'drafts → AtomicClaim[], VerificationResult[], ContradictionItem[]', checks: ['Quote matching: exact → normalised → elliptical → fuzzy, with numbers locked', 'Claims citing sources below the authority floor are downgraded', 'Both sides of a contradiction must be quoted verbatim'], code: 'src/agents/verifier.py' },
   synthesizer: { what: 'Sees only SUPPORTED claims. A claim whose source is outranked by a contradicting source is withheld, and a citation guard drops any sentence that cites sources outside the verified set.', io: 'verified claims → FinalReport', checks: ['Authority-weighted contradiction resolution', 'Removed claims are kept in the audit record'], code: 'src/agents/synthesizer.py' },
+  report_approver: { what: 'The final approver. Synthesis rewrites verified claims into prose, and a reworded sentence can drift from its source, so the Report Approver checks every cited sentence of the report against the spans of the sources it cites, with the Verifier\'s guards (verbatim quote, numbers locked, authority floor). Failing sentences go back to the Synthesizer; whatever still fails after the last fix round is removed. Conflict statements are kept: the contradiction radar validated both quotes.', io: 'FinalReport → ReportAudit → synthesizer (fix) | output shield', checks: ['Every cited sentence needs a verbatim span of a cited source', 'Fixes may cite verified sources only', 'Bounded fix rounds, then removal', 'Conflict statements are never stripped'], code: 'src/agents/report_approver.py · route_report()' },
   output_guard: { what: 'Redacts PII and secrets from everything that gets published. It also attaches the governance summary (findings, budget use, models, audit-chain head) and the disclosure.', io: 'FinalReport → published FinalReport', checks: ['Secrets always redacted', 'PII redacted by policy'], code: 'src/guardrails/shields.py · OutputGuard' },
   report: { what: 'The published executive report: claim matrix, contradiction radar, sources, governance section and a PDF with the full audit appendix.', io: 'report → UI · PDF · API', checks: ['Every sentence has verified citations or states that evidence is missing'], code: 'src/tools/pdf_exporter.py' },
   followup: { what: 'Answers follow-up questions using only this run\'s evidence pool. Questions pass the input shield first; citations outside the pool are stripped.', io: 'question → FollowUpAnswer', checks: ['Answers it can\'t ground are marked not answerable', 'Input and output shields applied'], code: 'src/agents/followup.py' },
@@ -132,7 +137,7 @@ function stepOf(item) {
     case 'search_executed': s.edge = 'web_res'; s.color = 'rgb(var(--cyan))'; break;
     case 'source_indexed': s.edge = p.retrieval_tier === 'uploaded_document' ? 'docs_res' : 'res_index'; if (p.retrieval_tier === 'uploaded_document') s.extraEdge = 'res_index'; break;
     case 'node_started':
-      s.edge = { planner: item.iteration > 1 ? 'master_planner' : 'guard_planner', master: p.mode === 'round' ? 'ver_master' : 'planner_master', approver: 'planner_master', researcher: 'master_res', drafter: p.exchange ? 'ver_drafter' : 'index_drafter', verifier: 'drafter_ver', synthesizer: 'master_synth', output_guard: 'synth_output' }[node] || undefined;
+      s.edge = { planner: item.iteration > 1 ? 'master_planner' : 'guard_planner', master: p.mode === 'round' ? 'ver_master' : 'planner_master', approver: 'planner_master', researcher: 'master_res', drafter: p.exchange ? 'ver_drafter' : 'index_drafter', verifier: 'drafter_ver', synthesizer: p.mode === 'fix' ? 'approver_synth' : 'master_synth', report_approver: 'synth_approver', output_guard: 'approver_output' }[node] || undefined;
       s.text = `${NODE[node]?.label || node} started${item.iteration > 1 ? ` (iteration ${item.iteration})` : ''} — ${item.message}`; break;
     case 'draft_created': s.edge = 'drafter_ver'; break;
     case 'quick_fix': s.node = 'verifier'; s.edge = 'ver_drafter'; s.color = 'rgb(var(--orange))'; s.tone = 'loop'; s.dur = 900; s.text = `Quick fix ${p.exchange}: the Verifier sends ${(p.targets || []).join(', ')} back to the Drafter`; break;
@@ -143,7 +148,8 @@ function stepOf(item) {
     case 'route_decision': s.node = 'master'; s.edge = p.route === 'researcher' ? 'master_res' : 'master_synth'; s.color = p.route === 'researcher' ? 'rgb(var(--orange))' : 'rgb(var(--green))'; break;
     case 'loop_back': s.node = 'master'; s.edge = 'master_res'; s.color = 'rgb(var(--orange))'; s.tone = 'loop'; break;
     case 'budget_guard': s.node = 'master'; s.tone = 'guard'; break;
-    case 'report_compiled': s.edge = 'synth_output'; break;
+    case 'report_compiled': s.edge = 'synth_approver'; break;
+    case 'report_audited': s.node = 'report_approver'; s.edge = p.decision === 'fix' ? 'approver_synth' : 'approver_output'; s.color = p.decision === 'fix' ? 'rgb(var(--orange))' : 'rgb(var(--green))'; s.tone = p.decision === 'fix' ? 'loop' : 'ok'; s.dur = 1000; s.text = `Report Approver: ${p.supported}/${p.judged} cited sentences supported → ${p.decision}`; break;
     case 'run_completed': s.node = 'report'; s.edge = 'output_report'; s.tone = 'ok'; break;
     case 'run_failed': s.node = 'report'; s.tone = 'danger'; break;
     case 'followup_answered': s.node = 'followup'; s.edge = 'report_followup'; break;
@@ -165,7 +171,7 @@ function reduce(k) {
     nodes: Object.fromEntries(NODES.map((n) => [n.id, { status: 'idle', visits: 0, findings: 0 }])),
     edges: Object.fromEntries(EDGES.map((e) => [e.id, { visited: false, label: null }])),
     c: { fixes: 0, subq: 0, searches: 0, tiers: {}, sources: 0, uploads: 0, spans: 0, drafts: 0, invalid: 0, claims: 0, supported: 0, contradicted: 0, unsupported: 0, downgraded: 0, ctr: 0, removed: 0, loops: 0, kept: null, redactions: 0, findings: 0, injections: 0, urlsBlocked: 0, calls: 0, tokens: 0, byAgent: {}, events: 0, followups: 0 },
-    routes: [], reviews: [], rounds: [], subQuestions: [], status: 'idle', blocked: null, query: '', inputStatus: null, llmScreen: null, budget: null, lastMetrics: null,
+    routes: [], reviews: [], rounds: [], audits: [], subQuestions: [], status: 'idle', blocked: null, query: '', inputStatus: null, llmScreen: null, budget: null, lastMetrics: null,
   };
   const c = S.c;
   for (let j = 0; j <= k && j < X.steps.length; j++) {
@@ -194,7 +200,7 @@ function reduce(k) {
         if (p.action === 'redact') { const m = /^(\d+)/.exec(p.detail || ''); c.redactions += m ? Number(m[1]) : 1; }
         break;
       case 'guardrail_blocked': S.blocked = it.message; S.nodes.input_guard.status = 'blocked'; S.nodes.blocked.status = 'blocked'; S.edges.guard_block.label = 'blocked'; break;
-      case 'run_blocked': S.status = 'blocked'; for (const id of ['planner', 'master', 'researcher', 'index', 'drafter', 'verifier', 'synthesizer', 'output_guard', 'report']) S.nodes[id].status = 'skipped'; break;
+      case 'run_blocked': S.status = 'blocked'; for (const id of ['report_approver', 'planner', 'master', 'researcher', 'index', 'drafter', 'verifier', 'synthesizer', 'output_guard', 'report']) S.nodes[id].status = 'skipped'; break;
       case 'plan_created': S.subQuestions = p.sub_questions || []; c.subq = S.subQuestions.length; S.edges.planner_master.label = `plan v${p.round || 1} · ${c.subq} sub-q`; break;
       case 'plan_reviewed':
         S.reviews.push(p);
@@ -226,7 +232,12 @@ function reduce(k) {
       case 'loop_back': c.loops++; break;
       case 'budget_guard': S.budget = p; S.edges.master_synth.label = 'budget spent'; break;
       case 'claim_removed': c.removed++; break;
-      case 'report_compiled': c.kept = p.metrics?.claims_in_report ?? null; S.edges.synth_output.label = `${c.kept ?? '?'} kept · ${p.metrics?.claims_removed ?? c.removed} cut`; break;
+      case 'report_compiled': c.kept = p.metrics?.claims_in_report ?? null; S.edges.synth_approver.label = `${c.kept ?? '?'} kept · ${p.metrics?.claims_removed ?? c.removed} cut`; break;
+      case 'report_audited':
+        S.audits.push(p);
+        if (p.decision === 'fix') S.edges.approver_synth.label = `fix ${p.round}: ${p.failed} sentence(s)`;
+        else S.edges.approver_output.label = p.decision === 'remove' ? `${p.failed} removed` : `approved ${p.supported}/${p.judged}`;
+        break;
       case 'run_completed': S.status = 'completed'; S.nodes.report.status = 'done'; S.nodes.audit.status = 'done'; S.nodes.blocked.status = 'skipped'; S.edges.output_audit.visited = true; break;
       case 'run_failed': S.status = 'failed'; Object.values(S.nodes).forEach((x) => { if (x.status === 'active') x.status = 'failed'; }); break;
       case 'followup_answered': c.followups++; S.nodes.followup.status = 'done'; S.edges.report_followup.label = `${c.followups} answered`; break;
@@ -362,7 +373,7 @@ function render() {
     const badge = $(`#badge-${n.id}`);
     if (badge) { badge.style.display = ns.findings ? '' : 'none'; badge.querySelector('text').textContent = ns.findings; }
     const mult = $(`#mult-${n.id}`);
-    if (mult) mult.textContent = ns.visits > 1 && ['planner', 'master', 'researcher', 'drafter', 'verifier'].includes(n.id) ? `×${ns.visits}` : '';
+    if (mult) mult.textContent = ns.visits > 1 && ['planner', 'master', 'researcher', 'drafter', 'verifier', 'synthesizer', 'report_approver'].includes(n.id) ? `×${ns.visits}` : '';
   }
   const stats = {
     user: S.query ? `“${S.query.slice(0, 18)}…”` : '',
@@ -374,6 +385,7 @@ function render() {
     drafter: c.drafts ? `${c.drafts} drafts${c.invalid ? ` · ${c.invalid} bad cites` : ''}` : '',
     verifier: c.claims ? `${c.supported}✓ ${c.unsupported}⚠ ${c.contradicted}✗ · ${c.ctr} conflicts` : '',
     synthesizer: c.kept !== null ? `${c.kept} kept · ${c.removed} cut` : '',
+    report_approver: S.audits.length ? `${S.audits[S.audits.length - 1].supported}/${S.audits[S.audits.length - 1].judged} sentences ${S.audits[S.audits.length - 1].decision === 'fix' ? '· fixing' : '✓'}` : '',
     output_guard: S.status === 'completed' ? `${c.redactions} redactions` : '',
     report: S.status === 'completed' ? 'published' : S.status === 'blocked' ? 'not produced' : '',
     followup: c.followups ? `${c.followups} answered` : '',
@@ -504,6 +516,7 @@ function liveStatsHtml(id, S) {
     case 'drafter': row('drafts', c.drafts); row('invalid citations', c.invalid); break;
     case 'verifier': row('quick fixes with the Drafter', c.fixes); row('claims checked', c.claims); row('supported', `<span class="text-emerald-300">${c.supported}</span>`); row('unsupported', `<span class="text-amber-300">${c.unsupported}</span>`); row('contradicted', `<span class="text-rose-300">${c.contradicted}</span>`); row('downgraded by guards', c.downgraded); row('contradictions', c.ctr); break;
     case 'synthesizer': row('claims kept', c.kept ?? '—'); row('claims removed', c.removed); break;
+    case 'report_approver': S.audits.forEach((a) => row(`check ${a.round}`, `${a.supported}/${a.judged} supported → <b>${esc(a.decision)}</b>${a.skipped ? ` · ${a.skipped} skipped` : ''}`)); break;
     case 'output_guard': row('redactions', c.redactions); row('guardrail findings (run)', c.findings); break;
     case 'report': row('status', esc(S.status)); break;
     case 'followup': row('answered', c.followups); break;

@@ -14,6 +14,7 @@ const NODES = [
   { id: 'drafter', label: 'Drafter', sub: 'cited drafts' },
   { id: 'verifier', label: 'Verifier', sub: 'entailment · radar' },
   { id: 'synthesizer', label: 'Synthesizer', sub: 'verified report' },
+  { id: 'report_approver', label: 'Report Approver', sub: 'verifies every sentence' },
   { id: 'output_guard', label: 'Output shield', sub: 'redact · govern' },
 ];
 const TABS = [

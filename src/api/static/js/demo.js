@@ -26,9 +26,9 @@ export const SCENARIOS = [
 ];
 
 const NAME_COLOR = { ...Object.fromEntries(AGENTS.map((a) => [a.id, a.color])), quality_gate: 'rgb(var(--gray))', orchestrator: 'rgb(var(--gray))', followup: 'rgb(var(--purple))', mesh: 'rgb(var(--purple))' };
-const NAME = { input_guard: 'Shield', output_guard: 'Publish', orchestrator: 'DeepDive', planner: 'Planner', master: 'Master Approver', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', followup: 'Follow-up', quality_gate: 'Quality gate' };
-const TRACE_CARD = { guardian: 'input_guard', planner: 'planner', master: 'master', approver: 'master', lead: 'master', researcher: 'researcher', embedder: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer' };
-const ACTIVITY = { input_guard: 'is screening the question', planner: 'is drafting the plan', master: 'is reviewing the team\'s work', researcher: 'is searching and indexing', drafter: 'is writing cited drafts', verifier: 'is checking every claim', synthesizer: 'is writing the report', output_guard: 'is reviewing before publication' };
+const NAME = { report_approver: 'Report Approver', input_guard: 'Shield', output_guard: 'Publish', orchestrator: 'DeepDive', planner: 'Planner', master: 'Master Approver', approver: 'Approver', researcher: 'Researcher', drafter: 'Drafter', verifier: 'Verifier', synthesizer: 'Synthesizer', followup: 'Follow-up', quality_gate: 'Quality gate' };
+const TRACE_CARD = { report_approver: 'report_approver', guardian: 'input_guard', planner: 'planner', master: 'master', approver: 'master', lead: 'master', researcher: 'researcher', embedder: 'researcher', drafter: 'drafter', verifier: 'verifier', synthesizer: 'synthesizer' };
+const ACTIVITY = { input_guard: 'is screening the question', planner: 'is drafting the plan', master: 'is reviewing the team\'s work', researcher: 'is searching and indexing', drafter: 'is writing cited drafts', verifier: 'is checking every claim', synthesizer: 'is writing the report', report_approver: 'is checking every sentence', output_guard: 'is reviewing before publication' };
 const AGAIN = { plan: 'Revise plan', master_plan: 'Master Approver reviews the revision', research: 'Research again', draft: 'Draft again', verify: 'Verify again' };
 
 const STAGE_INFO = {
@@ -41,9 +41,11 @@ const STAGE_INFO = {
   verify: { agent: 'verifier', label: 'Verify', what: 'Every sentence is split into atomic claims, and each claim is checked against the exact text of its cited source. The quote has to exist verbatim, and any figures have to match. The Verifier then reports the round to the Master Approver.' },
   master_review: { agent: 'master', label: 'Master Approver reviews round', what: 'The Master Approver reads the Verifier\'s round report against the quality gate. Below the bar it must send the group back, with an instruction for the Researcher and the Drafter on each weak sub-question. Once the evidence clears the bar it approves the work for the Synthesizer.' },
   report: { agent: 'synthesizer', label: 'Write report', what: 'The Synthesizer writes the report from verified claims only. Unsupported claims are removed, and contradictions are shown openly.' },
+  audit: { agent: 'report_approver', label: 'Report Approver checks', what: 'Synthesis rewrites verified claims into prose, and a reworded sentence can drift from its source. The Report Approver checks every cited sentence of the report against the exact spans of the sources it cites, with the same guards as the Verifier. Failing sentences go back to the Synthesizer; whatever still fails after the last fix is removed before publication. Sentences that state a conflict between sources are kept.' },
+  report_fix: { agent: 'synthesizer', label: 'Synthesizer fixes sentences', what: 'The Synthesizer rewrites only the sentences the Report Approver rejected, using the verified claims, or drops a sentence no verified claim supports. The Report Approver then re-checks the changed sentences.' },
   publish: { agent: 'output_guard', label: 'Publish', what: 'The output shield redacts personal data and secrets, attaches the governance summary, and seals the hash-chained audit trail.' },
 };
-const DELAY = { quick_fix: 1300, node_started: 950, plan_created: 1300, plan_reviewed: 1500, round_reviewed: 1500, agent_message: 1100, search_executed: 380, source_indexed: 320, draft_created: 1000, claims_extracted: 700, claim_verified: 300, claim_downgraded: 600, contradiction_detected: 900, metrics_computed: 1000, route_decision: 1300, loop_back: 1500, refinement_planned: 1100, report_compiled: 1300, guardrail_finding: 700, guardrail_blocked: 1600, trace: 160 };
+const DELAY = { report_audited: 1500, quick_fix: 1300, node_started: 950, plan_created: 1300, plan_reviewed: 1500, round_reviewed: 1500, agent_message: 1100, search_executed: 380, source_indexed: 320, draft_created: 1000, claims_extracted: 700, claim_verified: 300, claim_downgraded: 600, contradiction_detected: 900, metrics_computed: 1000, route_decision: 1300, loop_back: 1500, refinement_planned: 1100, report_compiled: 1300, guardrail_finding: 700, guardrail_blocked: 1600, trace: 160 };
 
 const D = { scenario: 0, runId: null, origin: null, items: [], shown: -1, playing: false, speed: 1, mode: 'auto', timer: null, pinnedStage: null, chain: null, logCount: 0, chatCount: 0, chatRun: null, side: 'chat', recorded: {} };
 
@@ -63,7 +65,7 @@ function model(k) {
     status: 'idle', query: '', blocked: null, t0: D.items.length ? ts(D.items[0]) : 0, now: 0,
     stages: [], agents: {}, loops: 0, active: null,
     screen: { status: null, llm: null, findings: [] },
-    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], masterMode: null, fixes: [], ex: {},
+    plan: { subq: [], strategy: '', rounds: {} }, reviews: [], rounds: [], chat: [], masterMode: null, fixes: [], ex: {}, audits: [], reportFixes: {},
     research: {}, drafts: {}, verify: {},
     report: { removed: [], compiled: null }, publish: null,
     mesh: { calls: 0, tokens: 0, ms: 0, byModel: {}, byAgent: {} },
@@ -96,12 +98,14 @@ function model(k) {
         if (node === 'researcher') M.ex[i] = 0;
         if (node === 'drafter' || node === 'verifier') M.ex[i] = p.exchange || 0;
         if ((node === 'drafter' || node === 'verifier') && M.ex[i]) { stage('fix', i, M.ex[i]); break; }
+        if (node === 'report_approver') { stage('audit', p.audit_round || i); break; }
+        if (node === 'synthesizer' && p.mode === 'fix') { stage('report_fix', p.audit_round || 1); break; }
         const key = node === 'master' ? (M.masterMode === 'round' ? 'master_review' : 'master_plan')
           : { input_guard: 'screen', planner: 'plan', researcher: 'research', drafter: 'draft', verifier: 'verify', synthesizer: 'report', output_guard: 'publish' }[node];
         if (key) stage(key, ['plan', 'master_plan', 'research', 'draft', 'verify', 'master_review'].includes(key) ? i : 1);
         break;
       }
-      case 'node_completed': { const node = ['approver', 'lead'].includes(it.node) ? 'master' : it.node; if (M.agents[node] !== 'blocked') M.agents[node] = 'done'; if (M.active === node) M.active = null; break; }
+      case 'node_completed': { const node = ['approver', 'lead'].includes(it.node) ? 'master' : it.node; if (M.agents[node] !== 'blocked') M.agents[node] = 'done'; if (M.active === node) M.active = null; if (node === 'synthesizer' && p.mode === 'fix') M.reportFixes[p.audit_round || 1] = p; break; }
       case 'guardrail_check': if (p.stage === 'input') { M.screen.status = p.status; M.screen.llm = p.llm_screen; } else M.publish = { ...(M.publish || {}), ...p }; break;
       case 'guardrail_finding': {
         if (it.node === 'input_guard') M.screen.findings.push(p);
@@ -136,6 +140,7 @@ function model(k) {
       case 'loop_back': M.loops++; (M.verify[i] ||= blankVerify()).loop = p; break;
       case 'claim_removed': M.report.removed.push(p); break;
       case 'report_compiled': M.report.compiled = p.metrics || {}; break;
+      case 'report_audited': M.audits.push(p); stage('audit', p.round || 1).count = `${p.supported}/${p.judged}`; break;
       case 'run_completed': M.status = 'completed'; M.stages.forEach((s) => { if (s.status === 'active') s.status = 'done'; }); break;
       case 'run_failed': M.status = 'failed'; break;
       default: break;
@@ -199,6 +204,7 @@ function cardStat(M, id) {
     case 'drafter': { const d = lastOf(Object.fromEntries(Object.entries(M.drafts).filter(([k]) => !k.includes('-')))); return d?.length ? `${d.length} drafts` : ''; }
     case 'verifier': return v?.metrics ? `${pct(v.metrics.grounding_rate)} grounded` : v?.verdicts.length ? `${v.verdicts.length} checked` : '';
     case 'synthesizer': return M.report.compiled ? `${M.report.compiled.claims_in_report} claims kept` : '';
+    case 'report_approver': { const a = M.audits[M.audits.length - 1]; return a ? `${a.supported}/${a.judged} sentences ${a.passed || a.decision === 'remove' ? '✓' : '✗'}` : ''; }
     case 'output_guard': return M.status === 'completed' ? 'sealed ✓' : '';
     default: return '';
   }
@@ -281,7 +287,8 @@ function renderPipeline(M) {
       <div class="pgroup-f">${svgIcon('chat')}<span>Group chat</span><span class="pzone-sub">Researcher + Drafter + Verifier work together${groupMsgs ? ` · ${groupMsgs} messages` : ''}</span>${rounds ? `<span class="pzone-round">round ${rounds}</span>` : ''}</div>
     </div>
     ${pcard(M, 'synthesizer', 'p3-solo p3-c7')}
-    ${pcard(M, 'output_guard', 'p3-solo p3-c9')}`;
+    ${pcard(M, 'report_approver', 'p3-solo p3-c9')}
+    ${pcard(M, 'output_guard', 'p3-solo p3-c11')}`;
   $('#dMesh').innerHTML = M.mesh.calls ? `Mesh API · <b>${M.mesh.calls}</b> calls · <b>${fmt(M.mesh.tokens)}</b> tokens · ${Object.keys(M.mesh.byModel).map(esc).join(', ')}` : 'Mesh API · every model call routes through the gateway';
   drawWires(M);
 }
@@ -298,8 +305,8 @@ function drawWires(M) {
     return { l: b.left - R.left, t: b.top - R.top, r: b.right - R.left, b: b.bottom - R.top, w: b.width, h: b.height, cx: b.left - R.left + b.width / 2, cy: b.top - R.top + b.height / 2 };
   };
   const S = box('pc-input_guard'); const P = box('pc-planner'); const L = box('pMaster');
-  const RE = box('pc-researcher'); const DR = box('pc-drafter'); const VE = box('pc-verifier'); const SY = box('pc-synthesizer'); const PU = box('pc-output_guard');
-  if (!S || !P || !L || !RE || !SY || !PU) return;
+  const RE = box('pc-researcher'); const DR = box('pc-drafter'); const VE = box('pc-verifier'); const SY = box('pc-synthesizer'); const RA = box('pc-report_approver'); const PU = box('pc-output_guard');
+  if (!S || !P || !L || !RE || !SY || !RA || !PU) return;
   const paths = []; const labels = [];
   const wire = (d, kind, label, lx, ly, side = false) => {
     paths.push(`<path d="${d}" class="w w-${kind}" marker-end="url(#wa-${kind})"/>`);
@@ -330,7 +337,13 @@ function drawWires(M) {
   wire(`M${VE.cx},${VE.t} L${VE.cx},${L1.b + 2}`, M.rounds.length ? 'on' : st('verifier') === 'done' ? 'live' : 'off', M.rounds.length ? `round report ×${M.rounds.length}` : 'round report', VE.cx + 8, (L1.b + VE.t) / 2, true);
   const y3 = L1.cy;
   wire(`M${L1.r},${y3} L${SY.cx - k},${y3} Q${SY.cx},${y3} ${SY.cx},${y3 + k} L${SY.cx},${SY.t - 2}`, approved ? 'ok' : 'off', approved ? 'approved ✓' : 'approve', (L1.r + SY.cx) / 2, y3);
-  wire(`M${SY.r},${SY.cy} L${PU.l - 2},${PU.cy}`, st('output_guard') ? 'on' : 'off');
+  wire(`M${SY.r},${SY.cy} L${RA.l - 2},${RA.cy}`, st('report_approver') ? 'on' : 'off');
+  const auditFixes = M.audits.filter((a) => a.decision === 'fix').length;
+  const fixingReport = st('synthesizer') === 'active' && auditFixes > 0;
+  const yr = Math.max(SY.b, RA.b);
+  wire(`M${RA.cx - 10},${RA.b} C${RA.cx - 10},${yr + 20} ${SY.cx + 10},${yr + 20} ${SY.cx + 10},${SY.b + 2}`,
+    auditFixes ? (fixingReport ? 'live' : 'loop') : 'off', auditFixes ? `fix ×${auditFixes}` : 'fix', (RA.cx + SY.cx) / 2, yr + 15);
+  wire(`M${RA.r},${RA.cy} L${PU.l - 2},${PU.cy}`, st('output_guard') ? 'on' : 'off');
 
   svg.setAttribute('viewBox', `0 0 ${R.width} ${R.height}`);
   svg.innerHTML = `<defs>${WIRE_KINDS.map((w) => `<marker id="wa-${w}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="wh-${w}"/></marker>`).join('')}</defs>${paths.join('')}`;
@@ -373,7 +386,7 @@ function setSide(side) {
 }
 
 function renderStages(M) {
-  const base = ['screen', 'plan', 'master_plan', 'research', 'draft', 'verify', 'master_review', 'report', 'publish'];
+  const base = ['screen', 'plan', 'master_plan', 'research', 'draft', 'verify', 'master_review', 'report', 'audit', 'publish'];
   const shown = [...M.stages];
   for (const key of base) if (!shown.some((s) => s.key === key)) shown.push({ key, iteration: 1, status: M.status === 'blocked' ? 'skipped' : 'pending', count: 0 });
   const order = (s) => {
@@ -382,13 +395,17 @@ function renderStages(M) {
     const loopIdx = { research: 0, draft: 1, verify: 2, master_review: 9 };
     if (s.key === 'fix') return 20 + (s.iteration - 1) * 12 + 2 + (s.exchange || 1);
     if (s.key in loopIdx) return 20 + (s.iteration - 1) * 12 + loopIdx[s.key];
-    return { screen: 0, report: 100, publish: 101 }[s.key];
+    if (s.key === 'audit') return 101 + (s.iteration - 1) * 2;
+    if (s.key === 'report_fix') return 102 + (s.iteration - 1) * 2;
+    return { screen: 0, report: 100, publish: 150 }[s.key];
   };
   shown.sort((a, b) => order(a) - order(b));
   D.stageList = shown;
   const current = currentStage(M);
   $('#dStages').innerHTML = shown.map((s, idx) => {
-    const label = s.key === 'fix' ? `Quick fix ${s.exchange}: Verifier ⇄ Drafter` : s.key === 'master_review' ? `Master Approver reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
+    const label = s.key === 'audit' ? (s.iteration > 1 ? `Report Approver re-checks (${s.iteration})` : 'Report Approver checks every sentence')
+      : s.key === 'report_fix' ? `Synthesizer fixes sentences (${s.iteration})`
+      : s.key === 'fix' ? `Quick fix ${s.exchange}: Verifier ⇄ Drafter` : s.key === 'master_review' ? `Master Approver reviews round ${s.iteration}` : s.iteration > 1 ? `${AGAIN[s.key] || STAGE_INFO[s.key].label}${s.iteration > 2 ? ` (${s.iteration})` : ''}` : STAGE_INFO[s.key].label;
     const icon = { done: '✓', active: '●', blocked: '✕', skipped: '–', pending: '' }[s.status] ?? '';
     const sel = current && current.key === s.key && current.iteration === s.iteration && (current.exchange || 0) === (s.exchange || 0);
     return `<button class="dstage ${sel ? 'selected' : ''}" data-state="${s.status}" data-stage="${s.key}:${s.iteration}:${s.exchange || 0}"><span class="dstage-icon">${icon}</span><span class="flex-1 text-left">${esc(label)}${s.iteration > 1 ? (['plan', 'master_plan'].includes(s.key) ? '<span class="ml-1.5 text-[10px]" style="color:rgb(var(--indigo-t))">revision</span>' : s.key === 'master_review' ? '' : '<span class="ml-1.5 text-[10px] text-amber-300">loop</span>') : ''}</span><span class="dstage-n">${s.count || idx + 1}</span></button>`;
@@ -487,6 +504,39 @@ const STAGE_RENDER = {
       <div class="dmeter"><div class="dsub">Grounding before <b class="float-right text-slate-100">${req ? pct(req.grounding_rate) : '—'}</b></div>${bar(req?.grounding_rate, undefined, 'rgb(var(--orange))')}</div>
       <div class="dmeter"><div class="dsub">After the fix <b class="float-right text-slate-100">${after !== undefined ? pct(after) : '—'}</b></div>${bar(after, undefined, 'rgb(var(--green))')}</div>
       <p class="text-[12px] leading-relaxed text-slate-500">No new research: the Drafter fixes its own draft from the evidence it already had. Another quick fix happens only if this one raised grounding, and at most twice per round; then the round report goes to the Master Approver.</p></div></div>`;
+  },
+  audit(M, r) {
+    const a = M.audits.find((x) => (x.round || 1) === r);
+    if (!a) return '<div class="dwait">The Report Approver is checking every sentence against its sources…</div>';
+    const tone = { supported: 'text-emerald-300', fixed: 'text-emerald-300', failed: 'text-amber-300', removed: 'text-rose-300', skipped: 'text-slate-500', unchecked: 'text-sky-300' };
+    const label = { supported: '✓ supported', fixed: '✓ fixed', failed: '✗ not supported', removed: '✕ removed', skipped: '· skipped', unchecked: '? unchecked' };
+    const where = (loc) => (loc === 'executive_summary' ? 'summary' : loc.startsWith('key_finding:') ? `finding ${Number(loc.split(':')[1]) + 1}` : loc.split(':')[1] || loc);
+    const row = (x) => `<div class="dissue fade-in"><div class="flex flex-wrap items-center gap-2 text-[11px]"><span class="font-mono text-slate-500">${esc(x.sid)}</span><span class="text-slate-500">${esc(where(x.location))}</span><span class="${tone[x.status] || ''} font-semibold">${label[x.status] || esc(x.status)}</span>${x.quote_verified ? '<span class="text-emerald-400">verbatim quote</span>' : ''}</div>
+      <div class="mt-1 text-[13px] text-slate-200">${cite(x.text)}</div>${x.status !== 'supported' && x.status !== 'fixed' && x.reason ? `<div class="mt-1 text-[11.5px] text-slate-400">${esc(x.reason)}</div>` : ''}</div>`;
+    // what changed first; the sentences that simply passed fold away
+    const all = a.sentences || [];
+    const changed = all.filter((x) => ['failed', 'removed', 'fixed', 'unchecked'].includes(x.status));
+    const passed = all.filter((x) => x.status === 'supported');
+    const skipped = all.filter((x) => x.status === 'skipped');
+    const rows = (changed.length ? changed.map(row).join('') : '<div class="dissue text-[13px] text-emerald-300">✓ Every cited sentence is supported by its sources.</div>')
+      + (passed.length ? `<details class="dfold"><summary>${passed.length} supported sentence(s)</summary>${passed.map(row).join('')}</details>` : '')
+      + (skipped.length ? `<details class="dfold"><summary>${skipped.length} skipped (no claim, or a conflict already quote-validated)</summary>${skipped.map(row).join('')}</details>` : '');
+    const decision = a.decision === 'approve' ? '<b>Approved.</b> Every cited sentence is supported, so the report goes to the output shield.'
+      : a.decision === 'fix' ? '<b>Sent back.</b> The Synthesizer must fix the failing sentences from the verified claims.'
+        : '<b>Removed.</b> Sentences still unsupported after the last fix were removed before publication.';
+    return `<div class="grid gap-4 lg:grid-cols-[1fr_260px]"><div><div class="dsub">${a.judged} sentence(s) checked · ${a.skipped} skipped (no claim or a quote-validated conflict)${a.unchecked ? ` · ${a.unchecked} unchecked (Mesh call failed, kept)` : ''}</div>${rows}</div>
+      <div class="space-y-3"><div class="dmeter"><div class="dsub">Report grounding <b class="float-right text-slate-100">${pct(a.groundedness)}</b></div>${bar(a.groundedness, 1, a.passed ? 'rgb(var(--green))' : 'rgb(var(--orange))')}<div class="text-[10.5px] text-slate-500">${a.supported} of ${a.judged} cited sentences supported</div></div>
+      <div class="droute ${a.decision === 'approve' ? '' : 'loop'}">${decision}</div>
+      <p class="text-[12px] leading-relaxed text-slate-500">Each sentence is checked against the spans of the sources it cites, with the Verifier's guards: the quote must exist verbatim, figures must match, and the source must clear the authority floor.</p></div></div>`;
+  },
+  report_fix(M, r) {
+    const a = M.audits.find((x) => (x.round || 1) === r);
+    const failing = (a?.sentences || []).filter((x) => x.status === 'failed');
+    const next = M.audits.find((x) => (x.round || 1) === r + 1);
+    const done = M.reportFixes[r];
+    const outcome = done ? `<div class="droute mt-3">The Synthesizer rewrote <b>${done.revised}</b> sentence(s) from the verified claims${done.unchanged ? `, kept <b>${done.unchanged}</b> as written` : ''} and dropped <b>${done.dropped}</b> that no verified claim supports.</div>` : '';
+    return `<div class="dsub">Sent back by the Report Approver</div>${failing.map((x) => `<div class="dissue fade-in"><div class="text-[13px] text-slate-200">${cite(x.text)}</div><div class="mt-1 text-[11.5px] text-amber-300">${esc(x.reason || 'not supported by its sources')}</div></div>`).join('') || '<div class="dwait">Waiting for the fix request…</div>'}${outcome}
+      ${next ? `<div class="dsub mt-4">After the fix</div><p class="text-[13px] text-slate-300">${next.supported} of ${next.judged} cited sentences now supported${(next.sentences || []).some((x) => x.status === 'fixed') ? `, ${(next.sentences || []).filter((x) => x.status === 'fixed').length} of them rewritten by the Synthesizer` : ''}.</p>` : '<div class="dwait mt-3">The Synthesizer is rewriting from the verified claims…</div>'}`;
   },
   master_review(M, i) {
     const r = M.rounds.find((x) => (x.round || 1) === i);
