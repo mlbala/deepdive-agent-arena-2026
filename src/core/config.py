@@ -36,17 +36,17 @@ class Settings(BaseSettings):
     # --- Mesh API gateway ----------------------------------------------------
     mesh_api_key: SecretStr | None = None
     mesh_base_url: str = MESH_DEFAULT_BASE_URL
-    mesh_default_model: str = "openai/gpt-4o-mini"
+    mesh_default_model: str = "openai/gpt-5.1"
     mesh_embedding_model: str = "openai/text-embedding-3-small"
     planner_model: str | None = None
-    master_model: str | None = None
-    report_approver_model: str | None = None
+    master_model: str | None = "openai/gpt-5.1"
+    report_approver_model: str | None = "openai/gpt-5.1"
     baseline_model: str | None = None
-    researcher_model: str | None = None
+    researcher_model: str | None = "openai/gpt-5-mini"
     drafter_model: str | None = None
-    verifier_model: str | None = None
+    verifier_model: str | None = "openai/gpt-5.1"
     synthesizer_model: str | None = None
-    followup_model: str | None = None
+    followup_model: str | None = "openai/gpt-5-mini"
     guardian_model: str | None = None
 
     mesh_timeout_seconds: float = Field(default=60.0, gt=0)

@@ -106,7 +106,7 @@ def test_complete_structured_validates_and_injects_schema(make_gateway):
     result = gateway.complete_structured("planner", "You plan.", "Q?", Answer, run_id="run_a")
     assert result == Answer(answer="42", confidence=0.9)
     call = client.calls[0]
-    assert call["model"] == "openai/gpt-4o-mini"
+    assert call["model"] == "openai/gpt-5.1"
     assert call["response_format"] == {"type": "json_object"}
     assert "OUTPUT CONTRACT" in call["messages"][0]["content"]
     assert '"confidence"' in call["messages"][0]["content"]
@@ -253,7 +253,7 @@ def test_trace_rows_capture_tokens_latency_and_are_immutable(make_gateway, audit
         assert t["prompt_tokens"] > 0 and t["completion_tokens"] > 0
         assert t["total_tokens"] == t["prompt_tokens"] + t["completion_tokens"]
         assert t["latency_ms"] >= 0
-        assert t["model"] == "openai/gpt-4o-mini"
+        assert t["model"] == "openai/gpt-5.1"
 
     usage = gateway.usage_for("run_t")
     assert usage["llm_calls"] == 2

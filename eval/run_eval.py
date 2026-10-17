@@ -5,6 +5,7 @@
     python3 -m eval.run_eval --llm simulated       # pipeline dry run with the deterministic simulator
     python3 -m eval.run_eval --update-readme       # also refresh the README results table
     python3 -m eval.run_eval --render-only --update-readme   # re-render README from latest_results.json
+    python3 -m eval.run_eval --ablation --update-readme      # what each layer adds (see ABLATIONS)
 
 Metrics
 -------
@@ -20,6 +21,14 @@ loop_back_efficacy       share of looped runs whose grounding or coverage improv
 trap_pass_rate           false-premise and thin-evidence traps handled correctly
 key_fact_recall          share of expected key facts present in the report narrative
 
+report_sentence_support  share of cited sentences in the whole published narrative (summary, findings,
+                         sections) that an independent sentence-level re-check finds SUPPORTED
+
+Ablation (--ablation) runs the same cases with one layer switched off at a time (the Report
+Approver, the Verifier -> Drafter quick fixes, the loop-backs) plus a plain-AI row: one plain
+Mesh answer per question, checked by the Verifier against the full run's evidence. Results go
+to eval/ablation_results.json.
+
 Results are written to eval/latest_results.json. Runs produced with the simulator are
 labelled `"mode": "simulated"` and must not be read as Mesh-model quality metrics.
 """
@@ -31,6 +40,7 @@ import json
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
@@ -38,6 +48,7 @@ from typing import Any
 
 from src.agents.base import EventCollector
 from src.agents.orchestrator import ResearchOrchestrator
+from src.agents.report_approver import ReportApproverAgent
 from src.core.config import Settings
 from src.core.mesh_gateway import MeshGateway
 from src.schemas.domain import DraftSection, FinalReport, SourceDocument, Verdict, extract_citations
@@ -48,8 +59,18 @@ from src.tools.web_search import WebRetriever
 EVAL_DIR = Path(__file__).resolve().parent
 BENCHMARK_PATH = EVAL_DIR / "benchmark_questions.json"
 RESULTS_PATH = EVAL_DIR / "latest_results.json"
+ABLATION_PATH = EVAL_DIR / "ablation_results.json"
 README_PATH = EVAL_DIR.parent / "README.md"
 README_START, README_END = "<!-- EVAL:START -->", "<!-- EVAL:END -->"
+ABLATION_START, ABLATION_END = "<!-- ABLATION:START -->", "<!-- ABLATION:END -->"
+
+# configuration id -> (label, settings overrides): each switches exactly one layer off
+ABLATIONS: dict[str, tuple[str, dict[str, Any]]] = {
+    "full": ("Full DeepDive", {}),
+    "no_report_check": ("Without the Report Approver", {"report_audit": False}),
+    "no_quick_fixes": ("Without Verifier -> Drafter quick fixes", {"group_chat_exchanges": 0}),
+    "single_pass": ("Without loop-backs (one research round)", {"max_iterations": 1, "master_extra_rounds": 0}),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +150,19 @@ def independent_reaudit(
     }
 
 
+def sentence_reaudit(
+    orchestrator: ResearchOrchestrator, run_id: str, report: FinalReport, sources: dict[str, SourceDocument]
+) -> dict[str, Any]:
+    """Every cited sentence of the published narrative, re-judged from scratch (no reused verdicts)."""
+    checker = ReportApproverAgent(orchestrator.gateway, orchestrator.settings, orchestrator.vector_store)
+    audit = checker.audit(run_id, report, sources, audit_round=1)
+    return {
+        "report_sentences_judged": audit.judged,
+        "report_sentences_unsupported": audit.failed,
+        "report_sentence_support": audit.groundedness if audit.judged else None,
+    }
+
+
 def score_question(
     case: dict[str, Any], state: dict[str, Any], reaudit: dict[str, Any], *, offline: bool, wall_ms: int
 ) -> dict[str, Any]:
@@ -200,6 +234,8 @@ def score_question(
         "expected_contradiction": case["expected_contradiction"],
         "contradiction_surfaced": surfaced,
         "contradictions_total": len(report.contradictions),
+        "report_check_fixed": m.report_sentences_fixed,
+        "report_check_removed": m.report_sentences_removed,
         "key_fact_recall": round(fact_hits / len(facts), 4) if facts else None,
         "trap_pass": trap_pass,
         "trap_detail": trap_detail,
@@ -240,6 +276,174 @@ def aggregate(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_tokens": sum(r["total_tokens"] for r in rows),
         "mean_wall_clock_s": round(mean(r["wall_clock_ms"] for r in rows) / 1000, 2) if rows else None,
     }
+
+
+def plain_row(case: dict[str, Any], orchestrator: ResearchOrchestrator, run_id: str) -> dict[str, Any]:
+    """The plain-AI baseline on the same question, checked against the full run's evidence."""
+    c = orchestrator.compare_baseline(run_id)
+    facts = case.get("key_facts", [])
+    rumor_as_fact = any(marker.lower() in c.answer.lower() for marker in case.get("rumor_markers", []))
+    return {
+        "id": case["id"],
+        "trap": case.get("trap"),
+        "claims": len(c.claims),
+        "traceable_rate": c.traceable_rate,
+        "contradicted": c.contradicted,
+        "unsupported": c.unsupported + c.not_found,
+        "with_figures": c.with_figures,
+        "key_fact_recall": round(sum(_contains_any(c.answer, alts) for alts in facts) / len(facts), 4) if facts else None,
+        "trap_pass": (not rumor_as_fact) if case.get("trap") == "thin_evidence" else None,
+        "llm_calls": c.llm_calls,
+        "total_tokens": c.total_tokens,
+        "answer": c.answer,
+    }
+
+
+def run_case(settings: Settings, llm_mode: str, case: dict[str, Any], *, offline: bool, plain: bool) -> dict[str, Any]:
+    orchestrator = build_orchestrator(settings, llm_mode)
+    started = time.perf_counter()
+    state: dict[str, Any] = dict(orchestrator.run(case["question"]))
+    wall_ms = round((time.perf_counter() - started) * 1000)
+    report: FinalReport = state["final_report"]
+    sources: dict[str, SourceDocument] = state["sources"]
+    reaudit = independent_reaudit(orchestrator, state["run_id"], report, sources)
+    row = score_question(case, state, {**reaudit, **sentence_reaudit(orchestrator, state["run_id"], report, sources)},
+                         offline=offline, wall_ms=wall_ms)
+    if plain:
+        row["plain"] = plain_row(case, orchestrator, state["run_id"])
+    return row
+
+
+def aggregate_ablation(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def avg(key: str) -> float | None:
+        values = [r[key] for r in rows if r.get(key) is not None]
+        return round(mean(values), 4) if values else None
+
+    traps = [r for r in rows if r["trap"]]
+    positives = [r for r in rows if r["expected_contradiction"]]
+    return {
+        "questions": len(rows),
+        "report_sentence_support": avg("report_sentence_support"),
+        "unsupported_sentences_published": sum(r.get("report_sentences_unsupported") or 0 for r in rows),
+        "claim_groundedness_post": avg("claim_groundedness_post"),
+        "coverage_final": avg("coverage_final"),
+        "key_fact_recall": avg("key_fact_recall"),
+        "trap_pass_rate": round(sum(bool(r["trap_pass"]) for r in traps) / len(traps), 4) if traps else None,
+        "contradiction_recall": round(sum(r["contradiction_surfaced"] for r in positives) / len(positives), 4) if positives else None,
+        "mean_iterations": avg("iterations"),
+        "quick_fixes": sum(r["quick_fixes"] for r in rows),
+        "report_check_fixes": sum(r.get("report_check_fixed", 0) + r.get("report_check_removed", 0) for r in rows),
+        "mean_llm_calls": avg("llm_calls"),
+        "mean_tokens": avg("total_tokens"),
+        "mean_wall_clock_s": round(mean(r["wall_clock_ms"] for r in rows) / 1000, 1) if rows else None,
+    }
+
+
+def aggregate_plain(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def avg(key: str) -> float | None:
+        values = [r[key] for r in rows if r.get(key) is not None]
+        return round(mean(values), 4) if values else None
+
+    traps = [r for r in rows if r["trap_pass"] is not None]
+    return {
+        "questions": len(rows),
+        "traceable_rate": avg("traceable_rate"),
+        "claims": sum(r["claims"] for r in rows),
+        "contradicted": sum(r["contradicted"] for r in rows),
+        "unsupported": sum(r["unsupported"] for r in rows),
+        "key_fact_recall": avg("key_fact_recall"),
+        "trap_pass_rate": round(sum(bool(r["trap_pass"]) for r in traps) / len(traps), 4) if traps else None,
+        "mean_llm_calls": avg("llm_calls"),
+        "mean_tokens": avg("total_tokens"),
+    }
+
+
+def ablation_table(results: dict[str, Any]) -> str:
+    backend = results["llm_backend"]
+    lines = [
+        f"_Generated {results['generated_at']} · LLM backend: **{backend['mode']}** (`{backend['model']}`) · "
+        f"retrieval: **{results['retrieval']}** · {results['questions']} benchmark questions per configuration_",
+        "",
+    ]
+    if backend["mode"] != "mesh":
+        lines += [f"> **Warning:** {backend['note']}", ""]
+    lines += [
+        "| Configuration | Report sentences supported (independent re-check) | Unsupported sentences published | "
+        "Coverage | Key facts | Traps passed | Rounds | Fixes made | Mesh calls / run | Tokens / run |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for cid, (label, _overrides) in ABLATIONS.items():
+        a = results["configs"].get(cid)
+        if not a:
+            continue
+        fixes = f"{a['quick_fixes']} quick · {a['report_check_fixes']} report"
+        lines.append(
+            f"| **{label}** | {_fmt(a['report_sentence_support'])} | {a['unsupported_sentences_published']} | "
+            f"{_fmt(a['coverage_final'])} | {_fmt(a['key_fact_recall'])} | {_fmt(a['trap_pass_rate'])} | "
+            f"{_fmt(a['mean_iterations'])} | {fixes} | {_fmt(a['mean_llm_calls'])} | {_fmt_int(a['mean_tokens'])} |"
+        )
+    p = results.get("plain")
+    if p:
+        lines.append(
+            f"| **Plain AI answer** (one Mesh call, no search) | {_fmt(p['traceable_rate'])} of claims traceable¹ | "
+            f"{p['contradicted'] + p['unsupported']} of {p['claims']} claims¹ | n/a | {_fmt(p['key_fact_recall'])} | "
+            f"{_fmt(p['trap_pass_rate'])}² | - | - | 1 (+ check) | {_fmt_int(p['mean_tokens'])} incl. check |"
+        )
+        lines += ["", "¹ Plain answers carry no citations, so their claims are checked against the full run's evidence "
+                  "pool (the closest sources per claim); unit: atomic claims, not report sentences. "
+                  "² Only the thin-evidence trap can be scored without sources (the rumour stated as fact or not)."]
+    return "\n".join(lines)
+
+
+def _fmt_int(value: float | None) -> str:
+    return "n/a" if value is None else f"{round(value):,}"
+
+
+def run_ablation(args: argparse.Namespace, settings_base: dict[str, Any]) -> dict[str, Any]:
+    cases = json.loads(BENCHMARK_PATH.read_text(encoding="utf-8"))["questions"]
+    if args.questions:
+        cases = [c for c in cases if c["id"] in set(args.questions)]
+    llm_mode = resolve_llm_mode(args.llm, Settings(**settings_base))
+    configs = [c for c in ABLATIONS if not args.configs or c in args.configs]
+    jobs = [(cid, case) for cid in configs for case in cases]
+
+    def job(item: tuple[str, dict[str, Any]]) -> tuple[str, dict[str, Any]]:
+        cid, case = item
+        settings = Settings(**{**settings_base, **ABLATIONS[cid][1]})
+        row = run_case(settings, llm_mode, case, offline=args.retrieval == "offline", plain=cid == "full" and not args.no_plain)
+        print(f"  [{cid}] {case['id']}: rounds={row['iterations']} sentences={_fmt(row['report_sentence_support'])} "
+              f"coverage={_fmt(row['coverage_final'])} ({row['wall_clock_ms'] / 1000:.0f}s)", flush=True)
+        return cid, row
+
+    print(f"Ablation: {len(configs)} configuration(s) x {len(cases)} question(s), {args.workers} worker(s)", flush=True)
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        done = list(pool.map(job, jobs))
+    by_config: dict[str, list[dict[str, Any]]] = {cid: [] for cid in configs}
+    for cid, row in done:
+        by_config[cid].append(row)
+    plain_rows = [r["plain"] for r in by_config.get("full", []) if "plain" in r]
+    sample = Settings(**settings_base)
+    model = "offline-heuristic-simulator" if llm_mode == "simulated" else sample.mesh_default_model
+    results = {
+        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
+        "llm_backend": {
+            "mode": llm_mode, "model": model, "gateway": sample.mesh_base_url,
+            "note": ("Real Mesh API completions; every LLM and embedding call routed through Mesh." if llm_mode == "mesh"
+                     else "Dry run with the deterministic offline simulator: validates the harness, NOT Mesh-model quality."),
+        },
+        "retrieval": "offline curated corpus" if args.retrieval == "offline" else "live web (Tavily/DuckDuckGo)",
+        "questions": len(cases),
+        "configs": {cid: aggregate_ablation(rows) for cid, rows in by_config.items()},
+        "plain": aggregate_plain(plain_rows) if plain_rows else None,
+        "runs": by_config,
+    }
+    args.output.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    table = ablation_table(results)
+    print("\n" + table + "\n")
+    print(f"Results written to {args.output}")
+    if args.update_readme:
+        print("README updated." if update_readme(table, markers=(ABLATION_START, ABLATION_END)) else "README markers not found; skipped.")
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -293,15 +497,16 @@ def markdown_tables(results: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def update_readme(table: str) -> bool:
+def update_readme(table: str, *, markers: tuple[str, str] = (README_START, README_END)) -> bool:
+    start, end = markers
     if not README_PATH.exists():
         return False
     text = README_PATH.read_text(encoding="utf-8")
-    if README_START not in text or README_END not in text:
+    if start not in text or end not in text:
         return False
-    head, rest = text.split(README_START, 1)
-    _, tail = rest.split(README_END, 1)
-    README_PATH.write_text(f"{head}{README_START}\n{table}\n{README_END}{tail}", encoding="utf-8")
+    head, rest = text.split(start, 1)
+    _, tail = rest.split(end, 1)
+    README_PATH.write_text(f"{head}{start}\n{table}\n{end}{tail}", encoding="utf-8")
     return True
 
 
@@ -314,19 +519,26 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--retrieval", choices=["offline", "live"], default="offline")
     parser.add_argument("--max-iterations", type=int, default=None)
     parser.add_argument("--questions", nargs="*", help="subset of benchmark ids")
-    parser.add_argument("--output", type=Path, default=RESULTS_PATH)
+    parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--ablation", action="store_true", help="run every ABLATIONS configuration plus the plain-AI baseline")
+    parser.add_argument("--configs", nargs="*", choices=list(ABLATIONS), help="ablation subset")
+    parser.add_argument("--no-plain", action="store_true", help="skip the plain-AI baseline in an ablation")
+    parser.add_argument("--workers", type=int, default=1, help="parallel runs in an ablation")
     parser.add_argument("--update-readme", action="store_true")
     parser.add_argument(
         "--render-only", action="store_true", help="re-render the README table from existing results (no runs)"
     )
     args = parser.parse_args(argv)
+    if args.output is None:
+        args.output = ABLATION_PATH if args.ablation else RESULTS_PATH
 
     if args.render_only:
         existing = json.loads(args.output.read_text(encoding="utf-8"))
-        table = markdown_tables(existing)
+        table = ablation_table(existing) if args.ablation else markdown_tables(existing)
+        markers = (ABLATION_START, ABLATION_END) if args.ablation else (README_START, README_END)
         print(table)
         if args.update_readme:
-            print("README updated." if update_readme(table) else "README markers not found; skipped.")
+            print("README updated." if update_readme(table, markers=markers) else "README markers not found; skipped.")
         return existing
 
     overrides: dict[str, Any] = {"database_url": "sqlite:///:memory:"}
@@ -334,6 +546,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         overrides["search_mode"] = "offline"
     if args.max_iterations:
         overrides["max_iterations"] = args.max_iterations
+    if args.ablation:
+        return run_ablation(args, overrides)
     settings = Settings(**overrides)
     llm_mode = resolve_llm_mode(args.llm, settings)
 

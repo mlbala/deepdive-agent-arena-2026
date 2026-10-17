@@ -205,7 +205,7 @@ Every boundary of the graph has a deterministic shield. Each decision is a typed
 
 On any finished run, one click (or `POST /api/runs/{id}/compare`) asks a plain AI the same question: one Mesh call, no search, no citations, the way a typical chat assistant answers. DeepDive then checks that answer exactly the way it checks itself. The Verifier's own claim rules split it into atomic claims, retrieval finds the closest sources in the run's evidence pool for each claim, and the Verifier's entailment and guards judge them (verbatim quote, numbers locked, authority floor). The result sits next to the report in the dashboard, the console and the PDF, and is persisted as a hash-chained `BASELINE_COMPARED` audit event.
 
-Live Mesh results (`openai/gpt-4o-mini` for both sides, offline corpus):
+Live Mesh results (recorded earlier with `openai/gpt-4o-mini` for both sides, offline corpus):
 
 | Question | Plain AI: claims traceable to a source span | Plain AI: claims with a figure | DeepDive |
 | --- | --- | --- | --- |
@@ -235,37 +235,38 @@ By default retrieval uses the curated offline corpus. That makes runs reproducib
 ### Latest recorded results
 
 <!-- EVAL:START -->
-_Generated 2026-10-16T10:45:51+00:00 · LLM backend: **mesh** (`openai/gpt-4o-mini (verifier: openai/gpt-4o-mini)`) · retrieval: **offline curated corpus** · max iterations 3_
+_Generated 2026-10-17T05:19:35+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (verifier: openai/gpt-5.1)`) · retrieval: **offline curated corpus** · max iterations 3_
 
 | Metric | Value |
 | --- | --- |
-| Claim groundedness, first draft (pre-verification) | 74% |
-| Claim groundedness, final report (independent re-audit) | 93% |
-| Citation precision (re-audit) | 93% |
-| Evidence quotes located verbatim | 99% |
-| Contradiction recall | 100% |
+| Claim groundedness, first draft (pre-verification) | 62% |
+| Claim groundedness, final report (independent re-audit) | 92% |
+| Citation precision (re-audit) | 92% |
+| Evidence quotes located verbatim | 98% |
+| Contradiction recall | 50% |
 | Contradiction false-positive rate (control) | 0% |
-| Loop-back rate / efficacy | 33% / 100% |
+| Loop-back rate / efficacy | 17% / 100% |
 | Trap pass rate (false premise + thin evidence) | 100% |
-| Key-fact recall | 87% |
-| Claims stripped before publication | 96 |
-| Mean Mesh calls / run · total tokens | 25.83 · 282,089 |
+| Key-fact recall | 100% |
+| Claims stripped before publication | 229 |
+| Mean Mesh calls / run · total tokens | 50.17 · 653,397 |
 
 | Case | Trap | Iter. | Grounding pre → re-audit | Coverage | Contradiction (expected → surfaced) | Trap | Key facts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `energy-solar-2023` | - | 1 | 89% → 96% | 100% | yes → yes | - | 100% |
-| `ai-transformer` | - | 1 | 89% → 97% | 100% | no → no | - | 100% |
-| `health-microplastics` | - | 3 | 69% → 100% | 100% | yes → yes | - | 67% |
-| `finance-rbi-repo` | - | 1 | 100% → 100% | 100% | yes → yes | - | 67% |
-| `adversarial-great-wall` | false_premise | 1 | 81% → 100% | 100% | yes → yes | yes | 100% |
-| `thin-evidence-zentrix` | thin_evidence | 3 | 15% → 67% | 67% | no → yes | yes | n/a |
+| `energy-solar-2023` | - | 1 | 82% → 90% | 100% | yes → no | - | 100% |
+| `ai-transformer` | - | 1 | 80% → 96% | 100% | no → no | - | 100% |
+| `health-microplastics` | - | 1 | 47% → 93% | 100% | yes → yes | - | 100% |
+| `finance-rbi-repo` | - | 1 | 66% → 97% | 100% | yes → no | - | 100% |
+| `adversarial-great-wall` | false_premise | 1 | 80% → 86% | 100% | yes → yes | yes | 100% |
+| `thin-evidence-zentrix` | thin_evidence | 3 | 20% → 89% | 100% | no → no | yes | n/a |
 <!-- EVAL:END -->
 
-> **How to read these numbers.** This run used real Mesh completions and embeddings (`openai/gpt-4o-mini` for every agent) with the default thresholds. Retrieval used the offline corpus, so the evidence and the planted conflicts are fixed. The model output is not deterministic, so expect a few points of variation between runs.
+> **How to read these numbers.** This run used real Mesh completions and embeddings (`openai/gpt-5.1` for the Planner, Drafter, Synthesizer, Master Approver, Report Approver and Verifier; `openai/gpt-5-mini` for the Researcher and FollowUp) with the default thresholds. Retrieval used the offline corpus, so the evidence and the planted conflicts are fixed. The model output is not deterministic, so expect a few points of variation between runs.
 >
-> - **First draft → final report** (74% → 93% grounded) is the verifier's effect: 96 unsupported or outweighed claims were stripped before publication.
-> - **Loop-backs paid off**: both runs that searched again (microplastics, Zentrix) improved their grounding or coverage after the loop-back.
-> - **Zentrix's low score is expected**. The company is fictional and its only evidence is a forum rumour, so the report says the evidence is insufficient instead of inventing figures: 5 claims were published and 47 stripped. It also surfaced one contradiction the benchmark did not expect. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
+> - **First draft → final report** (62% → 92% grounded) is the verifier's effect: 229 unsupported or outweighed claims were stripped before publication.
+> - **Loop-backs paid off**: the one run that searched again (Zentrix) improved its grounding after the loop-back.
+> - **Zentrix is the hardest case.** The company is fictional and its only evidence is a forum rumour, so the first draft is mostly unsupported (20% grounded). It needed all three iterations and the report states that the evidence is insufficient instead of inventing figures. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
+- **Contradiction recall (50%) is the weak spot** with this model: two of the four planted conflicts (`energy-solar-2023`, `finance-rbi-repo`) were not surfaced.
 >
 > To re-record, with `MESH_API_KEY` in `.env`:
 >
@@ -273,6 +274,13 @@ _Generated 2026-10-16T10:45:51+00:00 · LLM backend: **mesh** (`openai/gpt-4o-mi
 > python3 -m eval.run_eval --update-readme      # rewrites eval/latest_results.json and this table
 > DEEPDIVE_LIVE_TESTS=1 python3 -m pytest -m live -v   # quick live smoke test of the Mesh key
 > ```
+
+### What each layer adds (ablation)
+
+`python3 -m eval.run_eval --ablation` runs the same six benchmark questions once per configuration, each switching exactly one layer off, and adds a plain-AI row: one Mesh answer per question with no search, checked by the Verifier against the full run's evidence. Every published report is then re-checked sentence by sentence from scratch (summary, findings and sections; no verdict reused), so the first column measures what a reader would actually receive.
+
+<!-- ABLATION:START -->
+<!-- ABLATION:END -->
 
 ---
 
@@ -318,7 +326,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | --- | --- | --- |
 | `MESH_API_KEY` | — | **Required** for research runs |
 | `MESH_BASE_URL` | `https://api.meshapi.ai/v1` | Mesh gateway |
-| `MESH_DEFAULT_MODEL` | `openai/gpt-4o-mini` | Model for every agent |
+| `MESH_DEFAULT_MODEL` | `openai/gpt-5.1` | Default model for agents without their own override |
 | `PLANNER_MODEL`, `MASTER_MODEL`, `REPORT_APPROVER_MODEL`, `BASELINE_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
 | `MESH_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Dense retrieval embeddings (through Mesh) |
 | `MESH_MAX_RETRIES` / `MESH_JSON_REPAIR_ATTEMPTS` | 4 / 2 | Transient-error backoff / schema self-healing rounds |
@@ -421,7 +429,7 @@ Power tools:
 
 ## Testing
 
-203 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+204 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -429,6 +437,7 @@ Power tools:
 - **Master Approver and group chat:** the Verifier sends rejected claims back to the Drafter for a quick fix inside the round (exact hand-off sequence, unique claim ids, the cross-source scan reused, no new research), quick fixes stop as soon as one fails to raise grounding and a fix that makes things worse is not kept, and sub-questions without evidence go to the Master Approver instead; a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
 - **Report Approver:** an embellished sentence the sources don't support is sent back to the Synthesizer and fixed (exact hand-off sequence, report grounding before and after, checks billed to the Report Approver and kept out of the claim matrix, usage totals matching the traces), what still fails after the last fix is removed, conflict statements are never stripped, a Mesh outage leaves sentences flagged unchecked instead of removing them, sentences that are word for word a verified claim carry its verdict and repeated sentences get one verdict, the step can be switched off, and sentence-level rewrites leave every other sentence untouched
 - **Plain AI vs DeepDive:** the plain answer is decomposed and judged against the run's evidence (a correct sentence is credited with its verbatim quote, drifted figures and an unsourced forecast are not), the DeepDive side matches the report, the check is billed to the baseline and kept out of the claim matrix, the event is on the hash chain, evidence rehydrates after a restart, and the API creates, serves and guards the comparison, which also lands in the PDF
+- **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with the independent sentence re-check and the plain-AI row
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses

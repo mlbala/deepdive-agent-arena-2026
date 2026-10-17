@@ -204,6 +204,26 @@ def test_eval_harness_smoke(tmp_path, monkeypatch):
     assert great_wall["trap_pass"] is True and great_wall["contradiction_surfaced"] is True
 
 
+def test_ablation_harness_switches_one_layer_off_per_configuration(tmp_path, monkeypatch):
+    import json
+
+    from eval.run_eval import ABLATIONS, ablation_table, main
+
+    monkeypatch.chdir(tmp_path)  # never pick up a developer's real .env
+    out = tmp_path / "ablation.json"
+    results = main(["--llm", "simulated", "--ablation", "--questions", "energy-solar-2023",
+                    "--configs", "full", "no_report_check", "single_pass", "--workers", "2", "--output", str(out)])
+    assert json.loads(out.read_text())["configs"].keys() == {"full", "no_report_check", "single_pass"}
+    full, no_check, single = (results["runs"][c][0] for c in ("full", "no_report_check", "single_pass"))
+    assert full["report_sentence_support"] is not None and full["report_sentences_judged"] > 0, "independent sentence re-check"
+    assert single["iterations"] == 1 and ABLATIONS["no_report_check"][1] == {"report_audit": False}
+    assert no_check["report_check_fixed"] == no_check["report_check_removed"] == 0
+    assert "plain" in full and "plain" not in no_check, "the plain baseline reuses the full run's evidence"
+    assert results["plain"]["claims"] > 0 and results["plain"]["traceable_rate"] < 1.0
+    table = ablation_table(results)
+    assert "Without the Report Approver" in table and "Plain AI answer" in table and "NOT Mesh-model quality" in table
+
+
 def test_architecture_catalog_matches_the_real_graph(make_orchestrator):
     import typing
 
