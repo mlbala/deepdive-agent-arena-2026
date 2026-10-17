@@ -316,6 +316,12 @@ function drawWires(M) {
   const st = (id) => M.agents[id];
   const flow = (id) => (st(id) === 'active' ? 'live' : st(id) ? 'on' : 'off');
   const k = 10; // corner radius
+  // a loop back under two cards: straight down from the sender, across, straight up into the receiver,
+  // so the arrowhead sits on a vertical run and points squarely at the receiver's bottom edge
+  const under = (fx, fy, tx, ty, y) => {
+    const r = 6; const dir = tx < fx ? -1 : 1;
+    return `M${fx},${fy} L${fx},${y - r} Q${fx},${y} ${fx + dir * r},${y} L${tx - dir * r},${y} Q${tx},${y} ${tx},${y - r} L${tx},${ty + 1.5}`;
+  };
   const L1 = box('pMaster');
   const sent = M.reviews.filter((r) => !r.passed && !r.forced).length;
   const versions = Math.max(1, Object.keys(M.plan.rounds).length);
@@ -332,18 +338,18 @@ function drawWires(M) {
   down(DR, st('drafter') ? flow('drafter') : 'off', briefs ? `${briefs} instruction${briefs === 1 ? '' : 's'}` : 'brief');
   const fixes = M.fixes.length;
   const fixing = (M.ex[researchRounds(M)] || 0) > 0 && (st('drafter') === 'active' || st('verifier') === 'active');
-  const yb = Math.max(DR.b, VE.b);
-  wire(`M${VE.cx - 14},${VE.b} C${VE.cx - 14},${yb + 20} ${DR.cx + 14},${yb + 20} ${DR.cx + 14},${DR.b + 2}`,
-    fixes ? (fixing ? 'live' : 'loop') : 'off', fixes ? `quick fix ×${fixes}` : 'quick fix', (VE.cx + DR.cx) / 2, yb + 15);
+  const yb = Math.max(DR.b, VE.b) + 16;
+  wire(under(VE.cx, VE.b, DR.cx, DR.b, yb),
+    fixes ? (fixing ? 'live' : 'loop') : 'off', fixes ? `quick fix ×${fixes}` : 'quick fix', (VE.cx + DR.cx) / 2, yb);
   wire(`M${VE.cx},${VE.t} L${VE.cx},${L1.b + 2}`, M.rounds.length ? 'on' : st('verifier') === 'done' ? 'live' : 'off', M.rounds.length ? `round report ×${M.rounds.length}` : 'round report', VE.cx + 8, (L1.b + VE.t) / 2, true);
   const y3 = L1.cy;
   wire(`M${L1.r},${y3} L${SY.cx - k},${y3} Q${SY.cx},${y3} ${SY.cx},${y3 + k} L${SY.cx},${SY.t - 2}`, approved ? 'ok' : 'off', approved ? 'approved ✓' : 'approve', (L1.r + SY.cx) / 2, y3);
   wire(`M${SY.r},${SY.cy} L${RA.l - 2},${RA.cy}`, st('report_approver') ? 'on' : 'off');
   const auditFixes = M.audits.filter((a) => a.decision === 'fix').length;
   const fixingReport = st('synthesizer') === 'active' && auditFixes > 0;
-  const yr = Math.max(SY.b, RA.b);
-  wire(`M${RA.cx - 10},${RA.b} C${RA.cx - 10},${yr + 20} ${SY.cx + 10},${yr + 20} ${SY.cx + 10},${SY.b + 2}`,
-    auditFixes ? (fixingReport ? 'live' : 'loop') : 'off', auditFixes ? `fix ×${auditFixes}` : 'fix', (RA.cx + SY.cx) / 2, yr + 15);
+  const yr = Math.max(SY.b, RA.b) + 16;
+  wire(under(RA.cx, RA.b, SY.cx, SY.b, yr),
+    auditFixes ? (fixingReport ? 'live' : 'loop') : 'off', auditFixes ? `fix ×${auditFixes}` : 'fix', (RA.cx + SY.cx) / 2, yr);
   wire(`M${RA.r},${RA.cy} L${PU.l - 2},${PU.cy}`, st('output_guard') ? 'on' : 'off');
 
   svg.setAttribute('viewBox', `0 0 ${R.width} ${R.height}`);
