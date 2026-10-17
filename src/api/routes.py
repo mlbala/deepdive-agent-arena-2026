@@ -10,6 +10,8 @@
     GET  /api/runs/{id}/audit               persisted audit trail
     GET  /api/runs/{id}/report.pdf          executive PDF with audit appendix
     POST /api/runs/{id}/followup            grounded follow-up Q&A
+    POST /api/runs/{id}/compare             plain AI answer checked against the run's evidence
+    GET  /api/runs/{id}/compare             the latest comparison
     GET  /api/runs/{id}/followups           follow-up history
     POST /api/documents                     upload PDF/TXT/MD (multipart)
     GET  /api/documents                     uploaded document library
@@ -53,7 +55,7 @@ from src.core.exceptions import (
     RunNotFoundError,
 )
 from src.guardrails.shields import ContentGuard
-from src.schemas.domain import FollowUpAnswer, RunStatus
+from src.schemas.domain import AuditEventType, BaselineComparison, FollowUpAnswer, RunStatus
 from src.tools.document_ingestor import content_hash, ingest_bytes
 from src.tools.pdf_exporter import build_report_pdf, export_filename
 
@@ -413,6 +415,7 @@ async def run_report_pdf(run_id: str, request: Request) -> Response:
         chat=[e["payload"] for e in events if e["event_type"] == "agent_message"],
         iterations=[e["payload"] for e in events if e["event_type"] == "metrics_computed" and e["payload"].get("final", True)],
         chain=svc.store.verify_audit_chain(run_id),
+        comparison=latest_comparison(svc.store, run_id),
     )
     return Response(
         content=pdf,
@@ -428,6 +431,31 @@ async def run_followup(run_id: str, body: FollowUpRequest, request: Request) -> 
     if run["status"] != RunStatus.COMPLETED.value:
         raise HTTPException(status_code=409, detail="Follow-up questions require a completed run")
     return await asyncio.to_thread(svc.orchestrator.followup, run_id, body.question, history=body.history)
+
+
+@router.post("/api/runs/{run_id}/compare", response_model=BaselineComparison, dependencies=[rate_limited("followup")])
+async def run_compare(run_id: str, request: Request) -> BaselineComparison:
+    """Answer the run's question with one plain Mesh call and check it the way DeepDive checks itself."""
+    svc = services(request)
+    run = _run_or_404(svc, run_id)
+    if run["status"] != RunStatus.COMPLETED.value:
+        raise HTTPException(status_code=409, detail="The plain-AI comparison requires a completed run")
+    return await asyncio.to_thread(svc.orchestrator.compare_baseline, run_id)
+
+
+@router.get("/api/runs/{run_id}/compare", response_model=BaselineComparison)
+async def run_comparison(run_id: str, request: Request) -> BaselineComparison:
+    svc = services(request)
+    _run_or_404(svc, run_id)
+    found = latest_comparison(svc.store, run_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="No comparison yet: POST to this URL to create one")
+    return found
+
+
+def latest_comparison(store: Any, run_id: str) -> BaselineComparison | None:
+    events = [e for e in store.list_audit_events(run_id) if e["event_type"] == AuditEventType.BASELINE_COMPARED.value]
+    return BaselineComparison.model_validate(events[-1]["payload"]) if events else None
 
 
 @router.get("/api/runs/{run_id}/followups")

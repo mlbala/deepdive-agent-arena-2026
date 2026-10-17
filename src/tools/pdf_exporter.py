@@ -40,7 +40,7 @@ from reportlab.platypus import (
 )
 
 from src.core.exceptions import ReportExportError
-from src.schemas.domain import FinalReport
+from src.schemas.domain import BaselineComparison, FinalReport
 
 # ------------------------------------------------------------------ design tokens
 INK = colors.HexColor("#0f172a")
@@ -66,12 +66,12 @@ TIER_COLORS = {"TIER_1": GOOD, "TIER_2": BLUE, "TIER_3": WARN}
 AGENT_COLORS = {
     "input_guard": colors.HexColor("#f59e0b"), "planner": colors.HexColor("#a855f7"), "master": ACCENT,
     "researcher": colors.HexColor("#0891b2"), "drafter": colors.HexColor("#db2777"), "verifier": colors.HexColor("#16a34a"),
-    "synthesizer": colors.HexColor("#2563eb"), "output_guard": colors.HexColor("#f59e0b"), "report_approver": colors.HexColor("#0e9fb5"), "quality_gate": MUTED,
+    "synthesizer": colors.HexColor("#2563eb"), "output_guard": colors.HexColor("#f59e0b"), "report_approver": colors.HexColor("#0e9fb5"), "baseline": colors.HexColor("#78716c"), "quality_gate": MUTED,
     "approver": ACCENT, "lead": ACCENT,
 }
 AGENT_NAMES = {
     "input_guard": "Input shield", "planner": "Planner", "master": "Master Approver", "researcher": "Researcher",
-    "drafter": "Drafter", "verifier": "Verifier", "synthesizer": "Synthesizer", "output_guard": "Output shield", "report_approver": "Report Approver",
+    "drafter": "Drafter", "verifier": "Verifier", "synthesizer": "Synthesizer", "output_guard": "Output shield", "report_approver": "Report Approver", "baseline": "Plain AI baseline",
     "quality_gate": "Quality gate", "approver": "Approver", "lead": "Master Approver",
 }
 PAGE_W, PAGE_H = A4
@@ -485,12 +485,50 @@ def build_report_pdf(
     chat: list[dict[str, Any]] | None = None,
     iterations: list[dict[str, Any]] | None = None,
     chain: dict[str, Any] | None = None,
+    comparison: BaselineComparison | None = None,
 ) -> bytes:
     """Render the designed executive report + audit appendices to PDF bytes."""
     try:
-        return _render(report, claims or [], trace_summary or {}, chat or [], iterations or [], chain)
+        return _render(report, claims or [], trace_summary or {}, chat or [], iterations or [], chain, comparison)
     except Exception as exc:  # reportlab raises assorted layout errors
         raise ReportExportError(f"PDF export failed: {exc}") from exc
+
+
+def _comparison_section(c: BaselineComparison, s: dict[str, Any], width: float) -> list[Any]:
+    """Plain AI answer vs DeepDive: same question, same evidence, same checks."""
+    d = c.deepdive
+    report_check = (f"; {d.report_sentences_supported}/{d.report_sentences_checked} report sentences re-verified"
+                    if d.report_sentences_checked else "")
+    rows = [[_p(h, s["cellh"]) for h in ("", "PLAIN AI ANSWER", "DEEPDIVE REPORT")]]
+    for label, plain, deep in (
+        ("Claims you can trace to a verbatim source span", f"{_pct(c.traceable_rate)} ({c.supported} of {c.checked})",
+         f"100% ({d.claims_published} published claims{report_check})"),
+        ("Claims with a specific figure", f"{c.with_figures} of {len(c.claims)} claims",
+         f"{d.claims_with_figures} of {d.claims_published} published, each with its quote"),
+        ("Claims the sources contradict", str(c.contradicted), f"0 published; {d.claims_stopped} stopped before publication"),
+        ("Citations a reader can check", "none", f"{d.sources_cited} sources cited"),
+        ("Conflicts between sources disclosed", "none", str(d.contradictions_disclosed)),
+    ):
+        rows.append([_p(label, s["cellb"]), _p(plain, s["cell"]), _p(deep, s["cell"])])
+    out: list[Any] = [CondPageBreak(60 * mm), Spacer(1, 10), _p("Plain AI answer vs DeepDive", s["h2"]), _p(
+        f"One Mesh call ({c.model}) answered the same question the way a typical chat assistant would: no search, no citations. "
+        "DeepDive split that answer into atomic claims with its own Verifier rules and checked each one against this run's "
+        "sources, with the same guards it applies to itself. A claim the sources don't state may still be true; it just "
+        "can't be traced.", s["body"]), Spacer(1, 4),
+        _table(rows, [width * 0.36, width * 0.30, width * 0.34])]
+    hexes = {"supported": "#15803d", "contradicted": "#b91c1c", "unsupported": "#b45309", "not_found": "#b45309", "unchecked": "#64748b"}
+    labels = {"supported": "traced", "contradicted": "contradicted", "unsupported": "not stated", "not_found": "not in pool",
+              "unchecked": "not checked"}
+    claim_rows = [[_p(h, s["cellh"]) for h in ("CLAIM IN THE PLAIN ANSWER", "VERDICT", "WHY / EVIDENCE")]]
+    for x in c.claims:
+        quote = f"\u201c{x.evidence_quote}\u201d" if x.evidence_quote else ""
+        why = (f"{x.evidence_source_id}: {quote}" if x.status == "supported" and quote
+               else f"{x.reason}. Closest span in {x.evidence_source_id}: {quote}" if quote else x.reason)
+        claim_rows.append([_p(x.text, s["cell"]), Paragraph(f'<font color="{hexes[x.status]}"><b>{labels[x.status]}</b></font>', s["cell"]),
+                           _p(why or "-", s["cell"])])
+    out += [Spacer(1, 6), _table(claim_rows, [width * 0.44, width * 0.14, width * 0.42]),
+            _p(f"{c.llm_calls} Mesh calls . {c.total_tokens:,} tokens for the plain answer and its check.", s["small"])]
+    return out
 
 
 def _render(
@@ -500,6 +538,7 @@ def _render(
     chat: list[dict[str, Any]],
     iterations: list[dict[str, Any]],
     chain: dict[str, Any] | None,
+    comparison: BaselineComparison | None = None,
 ) -> bytes:
     s = _styles()
     buf = io.BytesIO()
@@ -673,6 +712,9 @@ def _render(
         rows_t = sorted(((AGENT_NAMES.get(a, a.title()), float(v.get("tokens", 0)), f"{v.get('tokens', 0):,} tok . {v.get('calls', 0)} calls")
                          for a, v in per_agent.items()), key=lambda r: -r[1])
         story.append(hbars(rows_t, width, "Mesh API tokens by agent", color=ACCENT))
+
+    if comparison is not None:
+        story += _comparison_section(comparison, s, width)
 
     # -- 4 detailed findings ------------------------------------------------------------------
     story += [CondPageBreak(60 * mm), Spacer(1, 10),

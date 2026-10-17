@@ -138,6 +138,7 @@ class AuditEventType(StrEnum):
     CLAIM_REMOVED = "claim_removed"
     REPORT_COMPILED = "report_compiled"
     FOLLOWUP_ANSWERED = "followup_answered"
+    BASELINE_COMPARED = "baseline_compared"
     RUN_BLOCKED = "run_blocked"
     GUARDRAIL_CHECK = "guardrail_check"
     GUARDRAIL_FINDING = "guardrail_finding"
@@ -442,6 +443,55 @@ class AuditedSentence(_Model):
     evidence_quote: str | None = None
     reason: str = ""
     status: Literal["supported", "failed", "fixed", "removed", "skipped", "unchecked"] = "supported"
+
+
+class BaselineClaim(_Model):
+    """One atomic claim of a plain AI answer, judged against the run's evidence pool."""
+
+    claim_id: str
+    text: str
+    status: Literal["supported", "contradicted", "unsupported", "not_found", "unchecked"]
+    matched_source_ids: list[str] = Field(default_factory=list)  # what retrieval found for the claim
+    evidence_source_id: str | None = None
+    evidence_quote: str | None = None
+    quote_verified: bool = False
+    reason: str = ""
+
+
+class DeepDiveSide(_Model):
+    """DeepDive's own numbers for the same question, from the run's report."""
+
+    claims_published: int = 0
+    claims_with_figures: int = 0  # published claims that state a figure (years aside)
+    claims_stopped: int = 0
+    grounding_rate: float | None = None  # supported share of the final round's claims
+    report_sentences_supported: int | None = None
+    report_sentences_checked: int | None = None
+    contradictions_disclosed: int = 0
+    sources_cited: int = 0
+
+
+class BaselineComparison(_Model):
+    """A plain, single-call AI answer to the run's question, checked the way DeepDive checks itself."""
+
+    run_id: str
+    query: str
+    model: str
+    answer: str
+    claims: list[BaselineClaim] = Field(default_factory=list)
+    checked: int = 0  # every claim except unchecked ones
+    with_figures: int = 0  # claims that state a figure (years aside): specific enough to be checked
+    supported: int = 0
+    contradicted: int = 0
+    unsupported: int = 0
+    not_found: int = 0
+    unchecked: int = 0
+    traceable_rate: float | None = None  # supported / checked
+    deepdive: DeepDiveSide = Field(default_factory=DeepDiveSide)
+    llm_calls: int = 0
+    total_tokens: int = 0
+    llm_reviewed: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
 
 
 class ReportAudit(_Model):
@@ -799,6 +849,10 @@ class SentenceFix(_Model):
 
 class ReportRevisionOutput(_Model):
     fixes: list[SentenceFix] = Field(default_factory=list)
+
+
+class BaselineAnswerOutput(_Model):
+    answer: str = Field(min_length=1)
 
 
 class FollowUpOutput(_Model):

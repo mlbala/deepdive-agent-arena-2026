@@ -18,6 +18,7 @@ from src.core.config import Settings
 from src.guardrails.patterns import HARM_MESSAGES, PatternHit, detect_harm, detect_injection
 from src.guardrails.pii import mask_excerpt, redact
 from src.schemas.domain import (
+    BaselineComparison,
     FinalReport,
     FollowUpAnswer,
     GuardrailAction,
@@ -240,6 +241,14 @@ class OutputGuard:
             }
         )
         return updated, _redaction_findings(self.guard_name, counts, "final_report", pii_action="before publication")
+
+    def apply_to_comparison(self, comparison: BaselineComparison) -> tuple[BaselineComparison, list[GuardrailFinding]]:
+        counts: dict[str, int] = {}
+        cleaned = comparison.model_copy(update={
+            "answer": self._clean(comparison.answer, counts),
+            "claims": [c.model_copy(update={"text": self._clean(c.text, counts)}) for c in comparison.claims],
+        })
+        return cleaned, _redaction_findings(self.guard_name, counts, "baseline_answer", pii_action="before publication")
 
     def apply_to_answer(self, answer: FollowUpAnswer) -> tuple[FollowUpAnswer, list[GuardrailFinding]]:
         counts: dict[str, int] = {}

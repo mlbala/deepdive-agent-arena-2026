@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     planner_model: str | None = None
     master_model: str | None = None
     report_approver_model: str | None = None
+    baseline_model: str | None = None
     researcher_model: str | None = None
     drafter_model: str | None = None
     verifier_model: str | None = None
@@ -178,7 +179,8 @@ class Settings(BaseSettings):
         explicit = self._csv(self.allowed_models)
         if explicit:
             return frozenset(explicit)
-        agents = ("planner", "master", "report_approver", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian")
+        agents = ("planner", "master", "report_approver", "researcher", "drafter", "verifier", "synthesizer", "followup", "guardian",
+                  "baseline")
         return frozenset({self.mesh_default_model, self.mesh_embedding_model, *(self.model_for(a) for a in agents)})
 
     @property

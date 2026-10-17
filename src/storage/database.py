@@ -58,8 +58,11 @@ from src.schemas.domain import (
     EvidenceChunk,
     FinalReport,
     FollowUpAnswer,
+    RetrievalTier,
     RunStatus,
+    SourceAuthority,
     SourceDocument,
+    SourceTier,
     VerificationResult,
 )
 
@@ -512,6 +515,19 @@ class AuditStore:
                 select(SourceRecord).where(SourceRecord.run_id == run_id).order_by(SourceRecord.source_id)
             )
             return [_row_to_dict(r, exclude=exclude) for r in rows]
+
+    def load_sources(self, run_id: str) -> dict[str, SourceDocument]:
+        """The run's sources as full documents, so the Verifier's guards can run after a restart."""
+        with self.session() as s:
+            rows = s.scalars(select(SourceRecord).where(SourceRecord.run_id == run_id))
+            return {
+                r.source_id: SourceDocument(
+                    source_id=r.source_id, url=r.url, title=r.title, domain=r.domain, content=r.content,
+                    retrieval_tier=RetrievalTier(r.retrieval_tier), query=r.query, content_hash=r.content_hash,
+                    authority=SourceAuthority(score=r.authority_score, tier=SourceTier(r.authority_tier), rule=r.authority_rule),
+                )
+                for r in rows
+            }
 
     def record_evidence(self, run_id: str, chunks: Sequence[EvidenceChunk]) -> None:
         with self.session() as s:

@@ -3,7 +3,8 @@
 DeepDive (Agent Arena 2026, Track 01) is a self-verifying multi-agent research system:
 Planner ⇄ Master Approver (plan review) → Researcher → Drafter ⇄ Verifier (quick fixes) → Master Approver (round review:
 another round | Synthesizer) → Synthesizer ⇄ Report Approver (sentence-level report check) → output shield, plus a
-FollowUp agent, wired as a LangGraph `StateGraph` (supervisor pattern) and served by FastAPI. Every node posts its real hand-off to the agents' group chat (`AGENT_MESSAGE` audit events).
+FollowUp agent and an on-demand plain-AI Baseline for comparison, wired as a LangGraph `StateGraph` (supervisor pattern) and
+served by FastAPI. Every node posts its real hand-off to the agents' group chat (`AGENT_MESSAGE` audit events).
 
 ## Commands
 

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from src.agents import (
+    baseline,
     drafter,
     followup,
     guardian,
@@ -226,6 +227,16 @@ def _agents(settings: Settings) -> list[dict[str, Any]]:
          "prompts": [{"name": "system", "text": followup.SYSTEM_PROMPT}], "llm_contract": "FollowUpOutput", "produces": ["FollowUpAnswer"],
          "tools": ["HybridVectorStore (rehydrated from SQLite)"], "guardrails": ["input + output shields", "citation guard"],
          "code": "src/agents/followup.py"},
+        {"id": "baseline", "name": "Plain AI baseline", "kind": "agent", "node": "baseline", "llm": True, "model": m("baseline"),
+         "role": "On request, answers the run's question with one plain Mesh call (no search, no citations) and checks that "
+                 "answer with DeepDive's own claim rules and Verifier against the run's evidence, for a side-by-side comparison.",
+         "prompts": [{"name": "plain answer", "text": baseline.ANSWER_PROMPT}, {"name": "claim decomposition", "text": baseline.CLAIMS_PROMPT},
+                     {"name": "claim check (Verifier entailment)", "text": verifier.ENTAILMENT_PROMPT}],
+         "llm_contract": "BaselineAnswerOutput · ClaimExtractionOutput · ClaimJudgementOutput", "produces": ["BaselineComparison"],
+         "tools": ["HybridVectorStore (closest sources per claim)", "locate_quote", "ungrounded_numbers"],
+         "guardrails": ["the Verifier's guards, unchanged", "output shield on the plain answer",
+                        "kept out of the run's claim matrix"],
+         "code": "src/agents/baseline.py"},
     ]
 
 
@@ -261,10 +272,10 @@ CONTRACT_MODELS: tuple[type[BaseModel], ...] = (
     domain.SubQuestion, domain.SourceDocument, domain.EvidenceChunk, domain.DraftSection, domain.AtomicClaim,
     domain.VerificationResult, domain.ContradictionItem, domain.IterationMetrics, domain.FinalReport,
     domain.GuardrailFinding, domain.GovernanceSummary, domain.FollowUpAnswer, domain.PlanReview, domain.RoundReview,
-    domain.ReportAudit, domain.AuditedSentence, domain.ReportRevisionOutput,
+    domain.ReportAudit, domain.AuditedSentence, domain.ReportRevisionOutput, domain.BaselineComparison, domain.BaselineClaim,
     domain.AgentInstruction, domain.AgentMessage,
     domain.GuardianOutput, domain.PlannerOutput, domain.PlanReviewOutput, domain.RoundReviewOutput, domain.RefinementOutput,
-    domain.DraftOutput,
+    domain.DraftOutput, domain.BaselineAnswerOutput,
     domain.ClaimExtractionOutput, domain.ClaimJudgementOutput, domain.ContradictionScanOutput,
     domain.SynthesisOutput, domain.FollowUpOutput,
 )

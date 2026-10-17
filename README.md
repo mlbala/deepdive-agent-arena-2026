@@ -110,6 +110,7 @@ The feedback is used, not just shown. A revised plan has to address the Master A
 | **Verifier** | drafts → `AtomicClaim`s, `VerificationResult`s, `ContradictionItem`s, `IterationMetrics` | Claim decomposition, entailment against cited spans only, deterministic guards, contradiction radar, per-sub-question gaps that drive the loop |
 | **Synthesizer** | verified claims → `FinalReport` | Sees only SUPPORTED claims; authority-weighted contradiction resolution; a **citation guard** removes any generated sentence whose citations aren't verified; rewrites the sentences the Report Approver sends back (`ReportRevisionOutput`) from the verified claims only |
 | **Report Approver** | report → `ReportAudit` (`AuditedSentence` per sentence) | The final approver. Re-verifies each cited report sentence with the Verifier's entailment and guards, sends failures back to the Synthesizer, removes what still fails, records first-check and final report grounding, and keeps its checks out of the claim matrix (billed to `report_approver` in traces) |
+| **Plain AI baseline** | run → `BaselineComparison` | On request only. One plain Mesh answer (no search, no citations), decomposed with the Verifier's claim rules and judged by the Verifier against the run's evidence pool, for the side-by-side comparison |
 | **FollowUp** | question + run → `FollowUpAnswer` | Retrieves from the run's own evidence (reloaded from SQLite after a restart); strips citations outside that pool; answers it can't ground are marked not answerable |
 
 Every agent prompt starts with a stable `ROLE:` line and sends its input as a JSON block. Every output is validated against a Pydantic v2 contract in [`src/schemas/domain.py`](src/schemas/domain.py).
@@ -199,6 +200,19 @@ Every boundary of the graph has a deterministic shield. Each decision is a typed
 | **Data minimisation** | Everywhere | Run rows store only the redacted question. The original question exists only in memory for the input shield. Upload findings are stored with the document and replayed into every run that uses it |
 
 `GET /api/governance/policy` publishes the active policy (no secrets). `GET /api/runs/{id}/governance` returns every guardrail decision for a run, its budget use, the models used, and audit-chain integrity.
+
+### Plain AI vs DeepDive, on the same question
+
+On any finished run, one click (or `POST /api/runs/{id}/compare`) asks a plain AI the same question: one Mesh call, no search, no citations, the way a typical chat assistant answers. DeepDive then checks that answer exactly the way it checks itself. The Verifier's own claim rules split it into atomic claims, retrieval finds the closest sources in the run's evidence pool for each claim, and the Verifier's entailment and guards judge them (verbatim quote, numbers locked, authority floor). The result sits next to the report in the dashboard, the console and the PDF, and is persisted as a hash-chained `BASELINE_COMPARED` audit event.
+
+Live Mesh results (`openai/gpt-4o-mini` for both sides, offline corpus):
+
+| Question | Plain AI: claims traceable to a source span | Plain AI: claims with a figure | DeepDive |
+| --- | --- | --- | --- |
+| Solar PV added in 2023, and why | **2 of 9 (22%)**. It said "approximately 300 GW"; the numbers lock found no such figure (the source reports a record 473 GW of renewables), and five of its "drivers" appear in no source | 1 | 32 published claims, each with its verbatim quote; 26/26 report sentences re-verified; 2 conflicts disclosed |
+| Microplastics in human blood | **6 of 11 (55%)**. Hedged and generic ("studies have detected…"); claims about inflation and regulators appear in no source | 0 | 49 published claims, 10 with figures; 25/25 report sentences re-verified; 45 stopped before publication |
+
+A claim the sources don't state may still be true; it just can't be traced, which is the problem with an uncited answer. The plain answer gets the benefit of the doubt: each claim is checked against the best-matching sources DeepDive found, not against nothing. Verdicts stay out of the run's own claim matrix, and the comparison costs about 8 to 10k tokens.
 
 ---
 
@@ -305,7 +319,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `MESH_API_KEY` | — | **Required** for research runs |
 | `MESH_BASE_URL` | `https://api.meshapi.ai/v1` | Mesh gateway |
 | `MESH_DEFAULT_MODEL` | `openai/gpt-4o-mini` | Model for every agent |
-| `PLANNER_MODEL`, `MASTER_MODEL`, `REPORT_APPROVER_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
+| `PLANNER_MODEL`, `MASTER_MODEL`, `REPORT_APPROVER_MODEL`, `BASELINE_MODEL` … `FOLLOWUP_MODEL` | inherit | Per-agent overrides (e.g. a stronger `VERIFIER_MODEL`) |
 | `MESH_EMBEDDING_MODEL` | `openai/text-embedding-3-small` | Dense retrieval embeddings (through Mesh) |
 | `MESH_MAX_RETRIES` / `MESH_JSON_REPAIR_ATTEMPTS` | 4 / 2 | Transient-error backoff / schema self-healing rounds |
 | `TAVILY_API_KEY` | — | Optional Tier-1 retrieval |
@@ -346,6 +360,7 @@ All settings are typed Pydantic `BaseSettings` fields ([`src/core/config.py`](sr
 | `GET /api/runs/{id}/audit` | Persisted audit trail |
 | `GET /api/runs/{id}/report.pdf` | Designed executive PDF: cover with verification seal, metric tiles and agent workflow diagram; Master Approver plan and round reviews; the Report Approver's sentence check; verification dashboard charts; findings with confidence bars; contradiction radar; sources with authority bars; methodology; appendices for the claim audit, stripped claims, the agents' group chat, governance and the audit chain, and Mesh telemetry |
 | `POST /api/runs/{id}/followup` | Follow-up Q&A grounded in the run's evidence |
+| `POST /api/runs/{id}/compare` · `GET /api/runs/{id}/compare` | Plain AI vs DeepDive: one plain Mesh answer to the run's question, split into claims and checked by the Verifier against the run's evidence (`BaselineComparison`) · the latest comparison |
 | `POST /api/documents` | Upload PDF/TXT/MD (deduplicated by content hash) to use as private evidence |
 | `GET /api/health` · `GET /api/graph` | Non-secret config and status · live Mermaid diagram of the compiled graph |
 | `GET /api/governance/policy` | Active guardrail and governance policy |
@@ -364,7 +379,7 @@ Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
 An Apple-style interface: system typography, glass navigation, a segmented mode switch, and **light and dark appearance** (it follows your OS; press <kbd>T</kbd> to switch). Everything is keyboard-first.
 
-**Live Demo** (the landing page) runs six scenarios for real, or replays recorded runs, stage by stage: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
+**Live Demo** (the landing page) runs six scenarios for real, or replays recorded runs, stage by stage: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with **Plain AI vs DeepDive** (ask a plain AI the same question and see its claims checked against the same evidence) and a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
 
 The **agent pipeline** above the stages puts the **Master Approver** on top, with its plan gate and round gate. Live wires connect it to every agent: "plan" and "revise" with the Planner; "dispatch" or "another round", "instructions" and "round report" with the Researcher, Drafter and Verifier in the **evidence group chat**; and "approved" to the Synthesizer. Inside the group, a "quick fix ×N" wire runs from the Verifier back to the Drafter, and each quick fix gets its own stage showing the claims sent back, the revised draft and grounding before and after. Each card shows its live result, its round (R2, R3…) and its Mesh calls and tokens. Beside the stages, the **Group chat** panel plays the agents' conversation in sync with the replay: who handed what to whom, the Master Approver's issues, fixes and instructions, the Verifier's rejected claims, and every decision with its score. The **Master Approver reviews round N** stage shows its rationale, the instructions it gave each agent and the gauges against the gate. The console has the same transcript under **Agent Chat**.
 
@@ -406,13 +421,14 @@ Power tools:
 
 ## Testing
 
-200 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+203 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
 - **Verifier and loop:** all four quote-localisation tiers, rejection of altered numbers, each guard's downgrade path, contradiction quote validation, metrics and gaps, the `route_verification` decision matrix, an end-to-end loop-back that repairs a hallucinated draft, and the loop stopping at `max_iterations`
 - **Master Approver and group chat:** the Verifier sends rejected claims back to the Drafter for a quick fix inside the round (exact hand-off sequence, unique claim ids, the cross-source scan reused, no new research), quick fixes stop as soon as one fails to raise grounding and a fix that makes things worse is not kept, and sub-questions without evidence go to the Master Approver instead; a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
 - **Report Approver:** an embellished sentence the sources don't support is sent back to the Synthesizer and fixed (exact hand-off sequence, report grounding before and after, checks billed to the Report Approver and kept out of the claim matrix, usage totals matching the traces), what still fails after the last fix is removed, conflict statements are never stripped, a Mesh outage leaves sentences flagged unchecked instead of removing them, sentences that are word for word a verified claim carry its verdict and repeated sentences get one verdict, the step can be switched off, and sentence-level rewrites leave every other sentence untouched
+- **Plain AI vs DeepDive:** the plain answer is decomposed and judged against the run's evidence (a correct sentence is credited with its verbatim quote, drifted figures and an unsourced forecast are not), the DeepDive side matches the report, the check is billed to the baseline and kept out of the claim matrix, the event is on the hash chain, evidence rehydrates after a restart, and the API creates, serves and guards the comparison, which also lands in the PDF
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
@@ -425,11 +441,11 @@ src/schemas/     domain contracts + LLM I/O contracts, LangGraph ResearchState w
 src/storage/     SQLAlchemy audit store (append-only guards), hybrid BM25 + Chroma evidence index
 src/tools/       source_scorer, web_search (3 tiers), document_ingestor, pdf_exporter, offline_corpus.json
 src/agents/      guardian, planner, master (Master Approver), researcher, drafter, verifier, synthesizer, report_approver, followup,
-                 orchestrator, base,
+                 baseline (plain AI comparison), orchestrator, base,
                  group_chat (agent hand-off messages), catalog (introspected architecture description)
 src/guardrails/  input/content/output shields, injection + harm patterns, PII/secret redaction, URL (SSRF) policy
 src/api/         FastAPI app factory, security middleware, REST + SSE routes, dashboard template + ES-module UI
-                 (demo, explorer, architecture, chat, console, palette, lens, charts)
+                 (demo, explorer, architecture, chat, compare, console, palette, lens, charts)
 eval/            benchmark_questions.json, run_eval.py, simulated_llm.py, latest_results.json
 tests/           conftest (fakes, fixtures) + 8 test modules (incl. opt-in live Mesh tests)
 ```

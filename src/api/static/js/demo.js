@@ -5,6 +5,7 @@ import { openRun } from './console.js';
 import { openLens } from './lens.js';
 import { ICONS } from './explorer.js';
 import { AGENT, AGENTS, CHAT_AGENT, chatMessage, roomOf, svgIcon } from './chat.js';
+import { compareHtml, handleCompareClick, onCompareChange } from './compare.js';
 
 // ------------------------------------------------------------------ scenarios (inputs only; every output is computed live)
 const SCENARIO_ICONS = {
@@ -614,7 +615,7 @@ const STAGE_RENDER = {
       <div class="dseal ${D.chain && !D.chain.valid ? 'bad' : ''}"><div><div class="dsub">Audit trail</div><div class="text-[13px]">${D.chain ? (D.chain.valid ? `Hash chain intact: ${D.chain.verified} events verified` : `Hash chain BROKEN at ${esc(D.chain.broken_at)}`) : 'Verifying hash chain…'}</div>
         <div class="mt-1 break-all font-mono text-[10px] text-slate-500">${esc(D.chain?.head || '')}</div></div>
         <div class="flex flex-wrap gap-2"><a class="btn-ghost" href="${esc(withKey(`/api/runs/${report.run_id}/report.pdf`))}">Download PDF</a><button class="btn-ghost" data-goto="explorer">Trace in “How it works”</button><button class="btn-ghost" data-goto="console">Open in Console</button></div></div>
-      <p class="mt-3 text-[11.5px] text-slate-500">${esc(g?.disclaimer || '')}</p>${ledgerHtml(M, report)}`;
+      <p class="mt-3 text-[11.5px] text-slate-500">${esc(g?.disclaimer || '')}</p>${compareHtml(report.run_id)}${ledgerHtml(M, report)}`;
   },
 };
 
@@ -781,7 +782,9 @@ export function initDemo() {
   $('#dSkip').addEventListener('click', skip);
   $$('[data-speed]').forEach((b) => b.addEventListener('click', () => { D.speed = Number(b.dataset.speed); render(); }));
   $$('[data-mode]').forEach((b) => b.addEventListener('click', () => { D.mode = b.dataset.mode; if (D.mode === 'auto' && D.playing) tick(); else clearTimeout(D.timer); render(); }));
+  onCompareChange(() => render());
   $('#dPanel').addEventListener('click', (e) => {
+    if (handleCompareClick(e)) return;
     const c = e.target.closest('[data-lens-claim]');
     if (!c || e.target.closest('[data-src]') || !D.runId) return;
     const verdict = Object.values(D.M?.verify || {}).flatMap((v) => v.verdicts).find((x) => x.claim_id === c.dataset.lensClaim);

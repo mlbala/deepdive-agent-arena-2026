@@ -2,6 +2,7 @@
 // governance / audit / telemetry / follow-up tabs, source inspector.
 'use strict';
 import { $, $$, ApiError, api, cite, emit, esc, fmt, on, pct, setApiKey, store, toast, ts, withKey } from './core.js';
+import { compareHtml, handleCompareClick, onCompareChange } from './compare.js';
 import { chatTranscript } from './chat.js';
 import { renderInsights } from './charts.js';
 import { openLens } from './lens.js';
@@ -242,6 +243,7 @@ function renderReport() {
       <p class="mt-2 text-sm leading-relaxed text-slate-300">${cite(s.body)}</p></div>`).join('')}</div>
     ${r.limitations.length ? `<div><div class="panel-h mb-2">Limitations</div><ul class="list-disc space-y-1 pl-5 text-sm text-slate-400">${r.limitations.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>` : ''}
     ${r.governance?.disclaimer ? `<p class="rounded-lg border border-ink-700 bg-ink-900 p-3 text-[11.5px] text-slate-400">${esc(r.governance.disclaimer)}</p>` : ''}
+    ${compareHtml(r.run_id)}
   </div>`;
 }
 
@@ -411,7 +413,9 @@ function wireKeyModal() {
 // ------------------------------------------------------------------ wiring
 export function initConsole() {
   renderTabs(); wireKeyModal();
+  onCompareChange(() => { if (store.run?.report) renderReport(); });
   document.addEventListener('click', async (e) => {
+    if (e.target.closest('#view-console [data-compare]')) { handleCompareClick(e); return; }
     const chip = e.target.closest('[data-src]'); if (chip && !e.target.closest('#view-explorer')) { e.stopPropagation(); openSource(chip.dataset.src); return; }
     const lc = e.target.closest('#view-console [data-lens-claim]'); if (lc) { openLens({ runId: store.runId, claimId: lc.dataset.lensClaim }); return; }
     if (e.target.closest('[data-open-lens]') && store.runId) { openLens({ runId: store.runId }); return; }

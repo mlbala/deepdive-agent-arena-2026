@@ -594,3 +594,29 @@ button.dclaim:hover { border-color: rgb(var(--accent) / .45); background: rgb(va
 #archSvg .room-label { font-size: 10px; font-weight: 700; letter-spacing: .08em; fill: rgb(var(--green-t)); }
 .pgroup-f svg { flex-shrink: 0; width: 13px; height: 13px; }
 .pgroup .pzone-cards { margin-bottom: 24px; }
+
+/* ------------------------------------------------------------------ plain AI vs DeepDive */
+.dcmp { margin-top: 16px; padding: 14px 16px; border-radius: 18px; background: rgb(var(--ink-850)); border: 1px solid var(--line); }
+.dcmp-title { margin-top: 2px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: rgb(var(--t-1)); }
+.dcmp-note { margin-top: 8px; font-size: 12px; line-height: 1.55; color: rgb(var(--t-4)); }
+.dcmp-btn { margin-top: 10px; }
+.dcmp-btn[disabled] { opacity: .65; cursor: progress; }
+.dcmp-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0; margin-top: 10px; font-size: 12.5px; }
+.dcmp-grid > div { padding: 8px 10px; border-top: 1px solid var(--line); }
+.dcmp-grid > div:nth-child(-n+3) { border-top: 0; }
+.dcmp-col { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: rgb(var(--t-3)); }
+.dcmp-bar { height: 5px; margin-top: 6px; border-radius: 99px; background: rgb(var(--ink-600) / .7); overflow: hidden; }
+.dcmp-bar i { display: block; height: 100%; border-radius: 99px; }
+.dcmp-k { color: rgb(var(--t-3)); }
+.dcmp-v b { color: rgb(var(--t-1)); font-weight: 700; font-variant-numeric: tabular-nums; }
+.dcmp-v i { display: block; font-style: normal; font-size: 11px; color: rgb(var(--t-4)); }
+.dcmp-answer { margin: 10px 2px; font-size: 13px; line-height: 1.6; color: rgb(var(--t-2)); }
+.dcmp-claim { margin-top: 8px; padding: 9px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgb(var(--card)); }
+.dcmp-pill { display: inline-block; margin-bottom: 4px; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+.dcmp-pill.ok { color: rgb(var(--green-t)); background: rgb(var(--green) / .12); }
+.dcmp-pill.bad { color: rgb(var(--red-t)); background: rgb(var(--red) / .12); }
+.dcmp-pill.warn { color: rgb(var(--orange-t)); background: rgb(var(--orange) / .12); }
+.dcmp-pill.muted { color: rgb(var(--t-4)); background: var(--fill); }
+.dcmp-why { margin-top: 3px; font-size: 11.5px; color: rgb(var(--t-4)); }
+.dcmp-quote { margin-top: 4px; font-size: 11.5px; font-style: italic; color: rgb(var(--t-3)); }
+@media (max-width: 640px) { .dcmp-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .dcmp-grid > div:nth-child(3n+1) { grid-column: 1 / -1; padding-bottom: 0; border-top: 1px solid var(--line); } .dcmp-grid > div:first-child { display: none; } }

@@ -49,6 +49,7 @@ from langgraph.graph import END, START, StateGraph
 
 from src.agents import group_chat as chat
 from src.agents.base import EventCollector, EventSink
+from src.agents.baseline import BaselineAgent
 from src.agents.drafter import DrafterAgent
 from src.agents.followup import FollowUpAgent
 from src.agents.guardian import GuardianAgent
@@ -77,6 +78,7 @@ from src.schemas.domain import (
     AgentMessage,
     AuditEvent,
     AuditEventType,
+    BaselineComparison,
     FinalReport,
     FollowUpAnswer,
     GovernanceSummary,
@@ -178,6 +180,7 @@ class ResearchOrchestrator:
         self.synthesizer = SynthesizerAgent(gateway, settings)
         self.report_approver = ReportApproverAgent(gateway, settings, vector_store)
         self.followup_agent = FollowUpAgent(gateway, settings, vector_store)
+        self.baseline_agent = BaselineAgent(gateway, settings, vector_store)
         self.guardian = GuardianAgent(gateway, settings)
         self.input_guard = InputGuard(settings)
         self.output_guard = OutputGuard(settings)
@@ -972,6 +975,36 @@ class ResearchOrchestrator:
             metrics=report.metrics.model_dump() if report else None,
         )
         yield "__end__", {}, final
+
+    def compare_baseline(self, run_id: str) -> BaselineComparison:
+        """Answer the run's question with one plain Mesh call and check it against the run's own evidence."""
+        report = self.store.get_report(run_id) if self.store else None
+        if report is None or self.store is None:
+            raise OrchestrationError("Only a completed run with a stored report can be compared")
+        store = self.store
+        collector = EventCollector(run_id, "baseline", 0, sink=self._emit)
+        before = self.gateway.usage_for(run_id)
+        comparison = self.baseline_agent.compare(
+            run_id, report=report, sources=store.load_sources(run_id),
+            published_claims=[c["claim_text"] for c in store.list_claims(run_id) if c.get("included_in_report")],
+            evidence_loader=lambda: store.list_evidence(run_id), collector=collector,
+        )
+        after = self.gateway.usage_for(run_id)
+        comparison = comparison.model_copy(update={
+            "llm_calls": after["llm_calls"] - before["llm_calls"],
+            "total_tokens": after["total_tokens"] - before["total_tokens"],
+        })
+        comparison, findings = self.output_guard.apply_to_comparison(comparison)
+        for finding in findings:
+            self._emit_finding(collector, finding)
+        rate = "n/a" if comparison.traceable_rate is None else f"{comparison.traceable_rate:.0%}"
+        collector.emit(
+            AuditEventType.BASELINE_COMPARED,
+            f"Plain AI answer: {comparison.supported} of {comparison.checked} claim(s) traceable to a source span ({rate}); "
+            f"{comparison.contradicted} contradicted by the sources",
+            **comparison.model_dump(mode="json"),
+        )
+        return comparison
 
     def followup(
         self, run_id: str, question: str, *, history: Sequence[dict[str, str]] = ()

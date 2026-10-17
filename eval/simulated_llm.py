@@ -19,6 +19,10 @@ exercises the Planner <-> Master Approver revision loop.
 
 `embellish_report=True` makes the Synthesizer add one cited but unsupported sentence to the executive
 summary, which exercises the Report Approver -> Synthesizer fix loop.
+
+The plain-AI baseline (`baseline.answer`) is simulated the way such answers tend to go wrong: from the
+corpus document closest to the question it states one sentence correctly, restates the next with its
+figures drifted, and adds a confident forecast no source makes.
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ import hashlib
 import json
 import math
 import re
+from functools import cache
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -78,6 +84,21 @@ def _core(question: str) -> str:
     q = question.strip().rstrip("?")
     q = re.sub(r"^(how (much|many)|what|how|why|when|where|which|who|does|do|is|are|did)\s+", "", q, flags=re.I)
     return q[:120]
+
+
+@cache
+def _corpus() -> list[dict[str, Any]]:
+    path = Path(__file__).resolve().parents[1] / "src" / "tools" / "offline_corpus.json"
+    return list(json.loads(path.read_text(encoding="utf-8"))["documents"])
+
+
+def _drift(sentence: str) -> str:
+    """Change every figure in a sentence, the way a recalled number drifts."""
+    def nudge(m: re.Match[str]) -> str:
+        value = m.group()
+        return value if re.fullmatch(r"(19|20)\d\d", value) else str(int(float(value) * 1.3) + 3)  # years stay put
+
+    return re.sub(r"\d+(?:\.\d+)?", nudge, sentence)
 
 
 def hashed_embedding(text: str, dims: int = 96) -> list[float]:
@@ -384,6 +405,19 @@ class HeuristicMeshSimulator:
             else:
                 fixes.append({"sid": rejected["sid"], "text": ""})
         return {"fixes": fixes}
+
+    def _baseline_answer(self, p: dict[str, Any]) -> dict[str, Any]:
+        question = p.get("question", "")
+        doc = max(_corpus(), key=lambda d: _overlap(question, d["title"] + " " + d["content"][:600]))
+        sentences = _sentences(doc["content"])
+        right = sentences[0] if sentences else doc["title"] + "."
+        drifted = next((_drift(x) for x in sentences[1:] if _numbers(x)), None)
+        parts = [right, drifted or "The figures have been revised upward several times since.",
+                 "Most analysts expect this trend to double again before the end of the decade."]
+        return {"answer": " ".join(x if x.endswith(".") else x + "." for x in parts)}
+
+    def _baseline_claims(self, p: dict[str, Any]) -> dict[str, Any]:
+        return {"claims": [{"text": x, "cited_source_ids": []} for x in _SENT.split(p.get("draft", "")) if len(x.split()) >= 4][:12]}
 
     def _followup(self, p: dict[str, Any]) -> dict[str, Any]:
         best: tuple[float, str | None, str | None] = (0.0, None, None)
