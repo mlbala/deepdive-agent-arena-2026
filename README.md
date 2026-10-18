@@ -161,9 +161,9 @@ The stored quote is always the **source's own text** at those offsets, never the
 
 | Tier | Band | Examples |
 | --- | --- | --- |
-| Tier 1 · primary / official / peer-reviewed | 0.85–1.00 | `.gov`, `.edu`, `.gov.in`, `.ac.uk`, `.int`, `sec.gov`, `rbi.org.in`, `iea.org`, `arxiv.org`, `nature.com`, `ieee.org`, `who.int`, `nih.gov`, `nejm.org` |
-| Tier 2 · established editorial / reference | 0.65–0.84 | `reuters.com`, `bloomberg.com`, `ft.com`, `economist.com`, `apnews.com`, `scientificamerican.com` · uploads: 0.75 |
-| Tier 3 · general web | 0.30–0.64 | unrecognised domains (0.48), Medium (0.40), Reddit (0.32), Quora (0.30) |
+| Tier 1 · primary / official / peer-reviewed | 0.85–1.00 | `.gov`, `.edu`, `.gov.in`, `.ac.uk`, `.int`, national governments (`.gouv.fr`, `.go.jp`, `.gov.sg`, `.govt.nz`, `.gov.br`, `.gob.mx`, `.gob.es`, `.bund.de`, `.admin.ch`, `destatis.de`), `sec.gov`, `rbi.org.in`, `iea.org` and IEA's own file host `iea.blob.core.windows.net` (that exact host only, never the shared `blob.core.windows.net`), `iea-pvps.org`, `arxiv.org`, `nature.com`, `ieee.org`, `who.int`, `nih.gov`, `nejm.org` |
+| Tier 2 · established editorial / reference | 0.65–0.84 | `reuters.com`, `bloomberg.com`, `ft.com`, `economist.com`, `apnews.com`, `scientificamerican.com`, independent energy analysts (`ember-energy.org`, `ren21.net`), first-party AI labs (`deepmind.google`, `research.google`, `openai.com`, `anthropic.com`, `ai.meta.com`: primary for their own releases but not independent, so not Tier 1) · uploads: 0.75 |
+| Tier 3 · general web | 0.30–0.64 | unrecognised domains (0.48), Medium (0.40), Reddit (0.32), Quora (0.30), market-research teaser pages such as `gminsights.com` and `grandviewresearch.com` (0.38–0.40: estimates with no published methodology, held below the admissibility floor even with every positive adjustment) |
 
 Small bounded adjustments (blog/forum paths −0.04, thin content −0.05, primary publication paths +0.02, dated +0.01, non-HTTPS −0.02) can never move a source out of its tier's band. Lookalike domains (`notreuters.com`, `sec.gov.evil.example`) don't inherit authority.
 

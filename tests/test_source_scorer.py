@@ -43,13 +43,30 @@ LONG = "Substantive analysis paragraph. " * 120  # > 3000 chars
         ("https://cs.stanford.edu/paper", SourceTier.TIER_1),
         ("https://www.energy.gov/eere/solar", SourceTier.TIER_1),
         ("https://pib.gov.in/release", SourceTier.TIER_1),
+        ("https://iea.blob.core.windows.net/assets/report.pdf", SourceTier.TIER_1),
+        ("https://iea-pvps.org/snapshot-reports/", SourceTier.TIER_1),
+        ("https://www.bundeswirtschaftsministerium.de/Redaktion/EN/x", SourceTier.TIER_1),
+        ("https://www.destatis.de/EN/Themes/x", SourceTier.TIER_1),
+        ("https://www.economie.gouv.fr/x", SourceTier.TIER_1),
+        ("https://www.meti.go.jp/english/x", SourceTier.TIER_1),
+        ("https://www.ema.gov.sg/x", SourceTier.TIER_1),
+        ("https://www.mbie.govt.nz/x", SourceTier.TIER_1),
+        ("https://www.bmwk.bund.de/x", SourceTier.TIER_1),
+        ("https://www.bfe.admin.ch/x", SourceTier.TIER_1),
         ("https://www.reuters.com/markets/x", SourceTier.TIER_2),
         ("https://www.bloomberg.com/news/x", SourceTier.TIER_2),
         ("https://www.ft.com/content/x", SourceTier.TIER_2),
         ("https://www.economist.com/finance", SourceTier.TIER_2),
+        ("https://deepmind.google/research/", SourceTier.TIER_2),
+        ("https://research.google/blog/x", SourceTier.TIER_2),
+        ("https://openai.com/index/x", SourceTier.TIER_2),
+        ("https://www.anthropic.com/news/x", SourceTier.TIER_2),
+        ("https://ember-energy.org/latest-insights/x", SourceTier.TIER_2),
         ("https://someone.medium.com/post", SourceTier.TIER_3),
         ("https://www.reddit.com/r/investing", SourceTier.TIER_3),
         ("https://random-blog.example/blog/post", SourceTier.TIER_3),
+        ("https://www.gminsights.com/industry-analysis/x", SourceTier.TIER_3),
+        ("https://www.grandviewresearch.com/industry-analysis/x", SourceTier.TIER_3),
     ],
 )
 def test_domain_tiers(url, tier):
@@ -87,6 +104,30 @@ def test_lookalike_domains_do_not_inherit_authority():
     assert score_source("https://notreuters.com/x").tier is SourceTier.TIER_3
     assert score_source("https://sec.gov.evil.example/x").tier is SourceTier.TIER_3
     assert normalize_domain("https://WWW.Reuters.com/path") == "reuters.com"
+
+
+def test_shared_blob_host_does_not_inherit_iea_authority():
+    authority = score_source("https://evil.blob.core.windows.net/x.pdf", content=LONG)
+    assert authority.tier is SourceTier.TIER_3
+    assert authority.rule == "tier3_default:unrecognised_domain"
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "gminsights.com",
+        "maximizemarketresearch.com",
+        "fortunebusinessinsights.com",
+        "marketresearchfuture.com",
+        "sphericalinsights.com",
+        "technavio.com",
+        "grandviewresearch.com",
+    ],
+)
+def test_market_research_pages_stay_below_admissibility_floor(domain, make_settings):
+    floor = make_settings().min_source_authority
+    authority = score_source(f"https://www.{domain}/industry-analysis/report.pdf", content=LONG, published_date="2025-01-01")
+    assert authority.score < floor
 
 
 def test_uploaded_documents_get_explicit_rule():
