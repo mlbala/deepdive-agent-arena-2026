@@ -235,38 +235,38 @@ By default retrieval uses the curated offline corpus. That makes runs reproducib
 ### Latest recorded results
 
 <!-- EVAL:START -->
-_Generated 2026-10-17T05:19:35+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (verifier: openai/gpt-5.1)`) · retrieval: **offline curated corpus** · max iterations 3_
+_Generated 2026-10-18T14:53:05+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (verifier: openai/gpt-5.1)`) · retrieval: **offline curated corpus** · max iterations 3_
 
 | Metric | Value |
 | --- | --- |
 | Claim groundedness, first draft (pre-verification) | 62% |
-| Claim groundedness, final report (fresh re-audit, same Verifier model) | 92% |
-| Citation precision (re-audit) | 92% |
-| Evidence quotes located verbatim | 98% |
+| Claim groundedness, final report (fresh re-audit, same Verifier model) | 89% |
+| Citation precision (re-audit) | 89% |
+| Evidence quotes located verbatim | 100% |
 | Contradiction recall | 50% |
 | Contradiction false-positive rate (control) | 0% |
-| Loop-back rate / efficacy | 17% / 100% |
+| Loop-back rate / efficacy | 17% / 0% |
 | Trap pass rate (false premise + thin evidence) | 100% |
 | Key-fact recall | 100% |
-| Claims stripped before publication | 229 |
-| Mean Mesh calls / run · total tokens | 50.17 · 653,397 |
+| Claims stripped before publication | 286 |
+| Mean Mesh calls / run · total tokens | 56.17 · 747,492 |
 
 | Case | Trap | Iter. | Grounding pre → re-audit | Coverage | Contradiction (expected → surfaced) | Trap | Key facts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `energy-solar-2023` | - | 1 | 82% → 90% | 100% | yes → no | - | 100% |
-| `ai-transformer` | - | 1 | 80% → 96% | 100% | no → no | - | 100% |
-| `health-microplastics` | - | 1 | 47% → 93% | 100% | yes → yes | - | 100% |
-| `finance-rbi-repo` | - | 1 | 66% → 97% | 100% | yes → no | - | 100% |
-| `adversarial-great-wall` | false_premise | 1 | 80% → 86% | 100% | yes → yes | yes | 100% |
-| `thin-evidence-zentrix` | thin_evidence | 3 | 20% → 89% | 100% | no → no | yes | n/a |
+| `energy-solar-2023` | - | 1 | 69% → 87% | 100% | yes → no | - | 100% |
+| `ai-transformer` | - | 1 | 82% → 84% | 100% | no → no | - | 100% |
+| `health-microplastics` | - | 1 | 38% → 94% | 100% | yes → yes | - | 100% |
+| `finance-rbi-repo` | - | 1 | 86% → 95% | 100% | yes → no | - | 100% |
+| `adversarial-great-wall` | false_premise | 1 | 77% → 75% | 100% | yes → yes | yes | 100% |
+| `thin-evidence-zentrix` | thin_evidence | 3 | 17% → 100% | 100% | no → no | yes | n/a |
 <!-- EVAL:END -->
 
 > **How to read these numbers.** This run used real Mesh completions and embeddings (`openai/gpt-5.1` for the Planner, Drafter, Synthesizer, Master Approver, Report Approver and Verifier; `openai/gpt-5-mini` for the Researcher and FollowUp) with the default thresholds. Retrieval used the offline corpus, so the evidence and the planted conflicts are fixed. The model output is not deterministic, so expect a few points of variation between runs.
 >
-> - **First draft → final report** (62% → 92% grounded) is the verifier's effect: 229 unsupported or outweighed claims were stripped before publication.
-> - **Loop-backs paid off**: the one run that searched again (Zentrix) improved its grounding after the loop-back.
-> - **Zentrix is the hardest case.** The company is fictional and its only evidence is a forum rumour, so the first draft is mostly unsupported (20% grounded). It needed all three iterations and the report states that the evidence is insufficient instead of inventing figures. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
-- **Contradiction recall (50%) is the weak spot** with this model: two of the four planted conflicts (`energy-solar-2023`, `finance-rbi-repo`) were not surfaced.
+> - **First draft → final report** (62% → 89% grounded) is the verifier's effect: 286 unsupported or outweighed claims were stripped before publication. The final-report figure is a fresh re-audit by the same Verifier model, not an independent judge. One case came out lower than its first draft: the Great Wall trap (77% → 75%).
+> - **Loop-backs did not pay off on this run** (efficacy 0%). Zentrix, the only case that searched again, gained its grounding inside round 1, where quick fixes took it from 17% to at least the 40% it finished on. Its two extra research rounds raised neither grounding nor coverage.
+> - **Zentrix is the hardest case.** The company is fictional and its only evidence is a forum rumour, so the first draft is mostly unsupported (17% grounded). It used all three iterations, and the report states that the evidence is insufficient instead of inventing figures. 186 of the 286 stripped claims came from this case, and its 100% re-audit rests on a single claim. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
+> - **Contradiction recall (50%) is the weak spot** with this model: two of the four planted conflicts (`energy-solar-2023`, `finance-rbi-repo`) were not surfaced.
 >
 > To re-record, with `MESH_API_KEY` in `.env`:
 >
