@@ -4,6 +4,21 @@
 
 All LLM and embedding traffic goes through **Mesh API** (`https://api.meshapi.ai/v1`) using the official `openai` SDK.
 
+## Judges' map
+
+One row per judging criterion: where to look in the code, and the evidence for it. Numbers come from the recorded Mesh benchmark ([`eval/latest_results.json`](eval/latest_results.json), six cases on the offline corpus; see [Self-evaluation](#self-evaluation)).
+
+| Criterion | Where in the code | Evidence |
+| --- | --- | --- |
+| 1. Multi-agent orchestration | [`src/agents/orchestrator.py`](src/agents/orchestrator.py): a LangGraph `StateGraph` with nine nodes (`input_guard`, `planner`, `master`, `researcher`, `drafter`, `verifier`, `synthesizer`, `report_approver`, `output_guard`). The Master Approver ([`src/agents/master.py`](src/agents/master.py)) is the hub through `route_master`; `route_group` sends quick fixes from the Verifier back to the Drafter, and `route_report` sends failing sentences back to the Synthesizer | `test_architecture_catalog_matches_the_real_graph` streams a real loop-back run and checks every node's state writes against the catalog. `GET /api/graph` returns the compiled graph |
+| 2. The track's core loop (self-checking) | `locate_quote()` and the deterministic guards in [`src/agents/verifier.py`](src/agents/verifier.py), the `route_verification` quality gate in [`src/agents/orchestrator.py`](src/agents/orchestrator.py), and the sentence-level report check in [`src/agents/report_approver.py`](src/agents/report_approver.py) | First draft 62% → final report 89% grounded (fresh re-audit, same Verifier model), with 286 unsupported or outweighed claims stripped before publication. `test_loop_back_repairs_hallucinated_draft` |
+| 3. Core domain capability | [`planner.py`](src/agents/planner.py), [`researcher.py`](src/agents/researcher.py), [`drafter.py`](src/agents/drafter.py), [`synthesizer.py`](src/agents/synthesizer.py) in `src/agents/`, and deterministic authority weighting in [`src/tools/source_scorer.py`](src/tools/source_scorer.py) | Key-fact recall 100%, trap pass rate 100% (false premise + thin evidence), coverage 100% on all six cases |
+| 4. Supporting domain capability | Grounded follow-up chat ([`src/agents/followup.py`](src/agents/followup.py)), document uploads (`POST /api/documents`, [`src/tools/document_ingestor.py`](src/tools/document_ingestor.py)), the executive PDF ([`src/tools/pdf_exporter.py`](src/tools/pdf_exporter.py)), and Plain AI vs DeepDive ([`src/agents/baseline.py`](src/agents/baseline.py), `POST /api/runs/{id}/compare`) | `test_a_plain_answer_is_decomposed_and_checked_against_the_runs_evidence`, `test_compare_api_creates_serves_and_guards_the_comparison`, `test_pdf_export_contains_report_and_audit_appendix`, `test_ingest_pdf_roundtrip` |
+| 5. Foundation, data model and real ingestion | Pydantic v2 contracts in [`src/schemas/domain.py`](src/schemas/domain.py), `ResearchState` with `merge_dicts` / `append_list` reducers in [`src/schemas/state.py`](src/schemas/state.py), the SQLAlchemy audit store in [`src/storage/database.py`](src/storage/database.py), and the Tavily → DuckDuckGo → offline retriever in [`src/tools/web_search.py`](src/tools/web_search.py) | `test_full_run_persists_a_consistent_audit_record`, `test_tavily_failure_falls_back_to_duckduckgo`, `test_everything_down_falls_back_to_offline_corpus` |
+| 6. Self-evaluation | [`eval/benchmark_questions.json`](eval/benchmark_questions.json) (six cases, two of them traps), [`eval/run_eval.py`](eval/run_eval.py) (benchmark, plus a one-layer-off ablation with `--ablation`), results in [`eval/latest_results.json`](eval/latest_results.json) | Six cases end to end on Mesh: 56 Mesh calls per run, 747,492 tokens in total, with the weak spots reported as measured (contradiction recall 50%, loop-back efficacy 0%). `test_eval_harness_smoke`, `test_ablation_harness_switches_one_layer_off_per_configuration` |
+| 7. Auditable decision trail | The SHA-256 hash-chained `audit_events` table in [`src/storage/database.py`](src/storage/database.py) (`verify_audit_chain`), `GET /api/runs/{id}/audit/verify` and `GET /api/runs/{id}/bundle` | `test_audit_chain_detects_tampering`. 100% of evidence quotes located verbatim in their cited source, each stored with exact character offsets |
+| 8. Code quality and reproducibility | 229 hermetic tests (no network), ruff and mypy clean, a multi-stage [`Dockerfile`](Dockerfile), and the official CI workflow [`.github/workflows/agent-arena-2026-checks.yml`](.github/workflows/agent-arena-2026-checks.yml) | `pytest`: 229 passed, 3 opt-in live tests skipped. `test_outputs_are_computed_from_the_query_not_hardcoded` |
+
 ---
 
 ## The problem, and what DeepDive changes
@@ -312,7 +327,7 @@ The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/
 
 ```bash
 python3 -m compileall src tests eval                    # syntax gate
-pytest                                                  # 176 hermetic tests, no network, ~6 s
+pytest                                                  # 229 hermetic tests, no network, ~9 s
 ruff check . && mypy src                                # lint / types (pip install ruff mypy)
 ```
 
@@ -429,7 +444,7 @@ Power tools:
 
 ## Testing
 
-204 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+229 hermetic tests run in about 9 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -475,6 +490,7 @@ tests/           conftest (fakes, fixtures) + 8 test modules (incl. opt-in live 
 - Fuzzy quote matching is limited to ≥ 0.90 similarity with number locking. Heavily paraphrased quotes are rejected, which errs toward safety.
 - Guardrail patterns are deterministic, with the Guardian LLM as a second layer. Neither can anticipate every attack, so treat them as defence in depth, not a guarantee.
 - The URL shield validates DNS before connecting, but it does not pin the resolved IP for the connection itself (DNS-rebinding window). An egress proxy closes that gap in production.
+- Verification checks that a claim matches its cited source, not that the source is recent or relevant to the question. In a live run on "latest AI research in the last 3 months", a key finding described BERT (2018) because a cited page said so: the claim was faithful to its source, and still the wrong answer. Next steps here: a time-window check on published dates, a relevance check in the Report Approver, and multi-source corroboration for key findings.
 - Next steps: per-claim cross-source corroboration scores, Postgres + pgvector, and streaming token-level drafts.
 
 ## License
