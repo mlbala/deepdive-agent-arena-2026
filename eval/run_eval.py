@@ -10,8 +10,10 @@
 Metrics
 -------
 claim_groundedness_pre   share of first-draft atomic claims SUPPORTED by their cited source (iteration 1)
-claim_groundedness_post  share of claims in the FINAL REPORT that an independent re-audit pass
-                         (fresh decomposition + entailment against cited sources) finds SUPPORTED
+claim_groundedness_post  share of claims in the FINAL REPORT that a fresh re-audit pass finds SUPPORTED
+                         (new decomposition + entailment against cited sources, no pipeline verdict
+                         reused; run by the same Verifier agent, model and prompts, so not an
+                         independent judge)
 citation_precision       share of cited report claims whose cited source entails them (re-audit)
 quote_verification_rate  share of verifier evidence quotes located verbatim in the cited source
 contradiction_recall     share of contradiction-bearing cases where the radar surfaced a conflict
@@ -22,7 +24,8 @@ trap_pass_rate           false-premise and thin-evidence traps handled correctly
 key_fact_recall          share of expected key facts present in the report narrative
 
 report_sentence_support  share of cited sentences in the whole published narrative (summary, findings,
-                         sections) that an independent sentence-level re-check finds SUPPORTED
+                         sections) that a fresh sentence-level re-check by the same Verifier
+                         model finds SUPPORTED
 
 Ablation (--ablation) runs the same cases with one layer switched off at a time (the Report
 Approver, the Verifier -> Drafter quick fixes, the loop-backs) plus a plain-AI row: one plain
@@ -368,7 +371,7 @@ def ablation_table(results: dict[str, Any]) -> str:
     if backend["mode"] != "mesh":
         lines += [f"> **Warning:** {backend['note']}", ""]
     lines += [
-        "| Configuration | Report sentences supported (independent re-check) | Unsupported sentences published | "
+        "| Configuration | Report sentences supported (fresh re-check, same Verifier model) | Unsupported sentences published | "
         "Coverage | Key facts | Traps passed | Rounds | Fixes made | Mesh calls / run | Tokens / run |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
@@ -473,7 +476,7 @@ def markdown_tables(results: dict[str, Any]) -> str:
         "| Metric | Value |",
         "| --- | --- |",
         f"| Claim groundedness, first draft (pre-verification) | {_fmt(agg['claim_groundedness_pre'])} |",
-        f"| Claim groundedness, final report (independent re-audit) | {_fmt(agg['claim_groundedness_post'])} |",
+        f"| Claim groundedness, final report (fresh re-audit, same Verifier model) | {_fmt(agg['claim_groundedness_post'])} |",
         f"| Citation precision (re-audit) | {_fmt(agg['citation_precision'])} |",
         f"| Evidence quotes located verbatim | {_fmt(agg['quote_verification_rate'])} |",
         f"| Contradiction recall | {_fmt(agg['contradiction_recall'])} |",

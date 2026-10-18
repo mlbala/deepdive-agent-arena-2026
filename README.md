@@ -223,7 +223,7 @@ A claim the sources don't state may still be true; it just can't be traced, whic
 | Metric | Definition |
 | --- | --- |
 | Claim groundedness, pre-verification | Share of first-draft claims SUPPORTED by their cited source (iteration 1) |
-| Claim groundedness, post-verification | Share of claims in the **final report** that an **independent re-audit** (fresh claim decomposition and entailment, separate from the pipeline's own verdicts) finds SUPPORTED |
+| Claim groundedness, post-verification | Share of claims in the **final report** that a **fresh re-audit** finds SUPPORTED: a new claim decomposition and entailment check of the final text, with no pipeline verdict reused. It runs on the same Verifier agent, model and prompts, so it is a fresh check, not an independent judge |
 | Citation precision | Share of cited report claims whose cited source entails them (re-audit) |
 | Contradiction recall / false-positive rate | Expected conflicts surfaced (involving the planted low-authority domain) / conflicts invented on the control case |
 | Loop-back efficacy | Share of looped runs whose grounding or coverage improved after the loop-back |
@@ -240,7 +240,7 @@ _Generated 2026-10-17T05:19:35+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (
 | Metric | Value |
 | --- | --- |
 | Claim groundedness, first draft (pre-verification) | 62% |
-| Claim groundedness, final report (independent re-audit) | 92% |
+| Claim groundedness, final report (fresh re-audit, same Verifier model) | 92% |
 | Citation precision (re-audit) | 92% |
 | Evidence quotes located verbatim | 98% |
 | Contradiction recall | 50% |
@@ -437,7 +437,7 @@ Power tools:
 - **Master Approver and group chat:** the Verifier sends rejected claims back to the Drafter for a quick fix inside the round (exact hand-off sequence, unique claim ids, the cross-source scan reused, no new research), quick fixes stop as soon as one fails to raise grounding and a fix that makes things worse is not kept, and sub-questions without evidence go to the Master Approver instead; a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
 - **Report Approver:** an embellished sentence the sources don't support is sent back to the Synthesizer and fixed (exact hand-off sequence, report grounding before and after, checks billed to the Report Approver and kept out of the claim matrix, usage totals matching the traces), what still fails after the last fix is removed, conflict statements are never stripped, a Mesh outage leaves sentences flagged unchecked instead of removing them, sentences that are word for word a verified claim carry its verdict and repeated sentences get one verdict, the step can be switched off, and sentence-level rewrites leave every other sentence untouched
 - **Plain AI vs DeepDive:** the plain answer is decomposed and judged against the run's evidence (a correct sentence is credited with its verbatim quote, drifted figures and an unsourced forecast are not), the DeepDive side matches the report, the check is billed to the baseline and kept out of the claim matrix, the event is on the hash chain, evidence rehydrates after a restart, and the API creates, serves and guards the comparison, which also lands in the PDF
-- **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with the independent sentence re-check and the plain-AI row
+- **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with a fresh sentence re-check by the same Verifier model and the plain-AI row
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
