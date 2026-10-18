@@ -4,6 +4,21 @@
 
 All LLM and embedding traffic goes through **Mesh API** (`https://api.meshapi.ai/v1`) using the official `openai` SDK.
 
+## Judges' map
+
+One row per judging criterion: where to look in the code, and the evidence for it. Numbers come from the recorded Mesh benchmark ([`eval/latest_results.json`](eval/latest_results.json), six cases on the offline corpus; see [Self-evaluation](#self-evaluation)).
+
+| Criterion | Where in the code | Evidence |
+| --- | --- | --- |
+| 1. Multi-agent orchestration | [`src/agents/orchestrator.py`](src/agents/orchestrator.py): a LangGraph `StateGraph` with nine nodes (`input_guard`, `planner`, `master`, `researcher`, `drafter`, `verifier`, `synthesizer`, `report_approver`, `output_guard`). The Master Approver ([`src/agents/master.py`](src/agents/master.py)) is the hub through `route_master`; `route_group` sends quick fixes from the Verifier back to the Drafter, and `route_report` sends failing sentences back to the Synthesizer | `test_architecture_catalog_matches_the_real_graph` streams a real loop-back run and checks every node's state writes against the catalog. `GET /api/graph` returns the compiled graph |
+| 2. The track's core loop (self-checking) | `locate_quote()` and the deterministic guards in [`src/agents/verifier.py`](src/agents/verifier.py), the `route_verification` quality gate in [`src/agents/orchestrator.py`](src/agents/orchestrator.py), and the sentence-level report check in [`src/agents/report_approver.py`](src/agents/report_approver.py) | First draft 62% → final report 89% grounded (fresh re-audit, same Verifier model), with 286 unsupported or outweighed claims stripped before publication. `test_loop_back_repairs_hallucinated_draft` |
+| 3. Core domain capability | [`planner.py`](src/agents/planner.py), [`researcher.py`](src/agents/researcher.py), [`drafter.py`](src/agents/drafter.py), [`synthesizer.py`](src/agents/synthesizer.py) in `src/agents/`, and deterministic authority weighting in [`src/tools/source_scorer.py`](src/tools/source_scorer.py) | Key-fact recall 100%, trap pass rate 100% (false premise + thin evidence), coverage 100% on all six cases |
+| 4. Supporting domain capability | Grounded follow-up chat ([`src/agents/followup.py`](src/agents/followup.py)), document uploads (`POST /api/documents`, [`src/tools/document_ingestor.py`](src/tools/document_ingestor.py)), the executive PDF ([`src/tools/pdf_exporter.py`](src/tools/pdf_exporter.py)), and Plain AI vs DeepDive ([`src/agents/baseline.py`](src/agents/baseline.py), `POST /api/runs/{id}/compare`) | `test_a_plain_answer_is_decomposed_and_checked_against_the_runs_evidence`, `test_compare_api_creates_serves_and_guards_the_comparison`, `test_pdf_export_contains_report_and_audit_appendix`, `test_ingest_pdf_roundtrip` |
+| 5. Foundation, data model and real ingestion | Pydantic v2 contracts in [`src/schemas/domain.py`](src/schemas/domain.py), `ResearchState` with `merge_dicts` / `append_list` reducers in [`src/schemas/state.py`](src/schemas/state.py), the SQLAlchemy audit store in [`src/storage/database.py`](src/storage/database.py), and the Tavily → DuckDuckGo → offline retriever in [`src/tools/web_search.py`](src/tools/web_search.py) | `test_full_run_persists_a_consistent_audit_record`, `test_tavily_failure_falls_back_to_duckduckgo`, `test_everything_down_falls_back_to_offline_corpus` |
+| 6. Self-evaluation | [`eval/benchmark_questions.json`](eval/benchmark_questions.json) (six cases, two of them traps), [`eval/run_eval.py`](eval/run_eval.py) (benchmark, plus a one-layer-off ablation with `--ablation`), results in [`eval/latest_results.json`](eval/latest_results.json) | Six cases end to end on Mesh: 56 Mesh calls per run, 747,492 tokens in total, with the weak spots reported as measured (contradiction recall 50%, loop-back efficacy 0%). `test_eval_harness_smoke`, `test_ablation_harness_switches_one_layer_off_per_configuration` |
+| 7. Auditable decision trail | The SHA-256 hash-chained `audit_events` table in [`src/storage/database.py`](src/storage/database.py) (`verify_audit_chain`), `GET /api/runs/{id}/audit/verify` and `GET /api/runs/{id}/bundle` | `test_audit_chain_detects_tampering`. 100% of evidence quotes located verbatim in their cited source, each stored with exact character offsets |
+| 8. Code quality and reproducibility | 229 hermetic tests (no network), ruff and mypy clean, a multi-stage [`Dockerfile`](Dockerfile), and the official CI workflow [`.github/workflows/agent-arena-2026-checks.yml`](.github/workflows/agent-arena-2026-checks.yml) | `pytest`: 229 passed, 3 opt-in live tests skipped. `test_outputs_are_computed_from_the_query_not_hardcoded` |
+
 ---
 
 ## The problem, and what DeepDive changes
@@ -161,9 +176,9 @@ The stored quote is always the **source's own text** at those offsets, never the
 
 | Tier | Band | Examples |
 | --- | --- | --- |
-| Tier 1 · primary / official / peer-reviewed | 0.85–1.00 | `.gov`, `.edu`, `.gov.in`, `.ac.uk`, `.int`, `sec.gov`, `rbi.org.in`, `iea.org`, `arxiv.org`, `nature.com`, `ieee.org`, `who.int`, `nih.gov`, `nejm.org` |
-| Tier 2 · established editorial / reference | 0.65–0.84 | `reuters.com`, `bloomberg.com`, `ft.com`, `economist.com`, `apnews.com`, `scientificamerican.com` · uploads: 0.75 |
-| Tier 3 · general web | 0.30–0.64 | unrecognised domains (0.48), Medium (0.40), Reddit (0.32), Quora (0.30) |
+| Tier 1 · primary / official / peer-reviewed | 0.85–1.00 | `.gov`, `.edu`, `.gov.in`, `.ac.uk`, `.int`, national governments (`.gouv.fr`, `.go.jp`, `.gov.sg`, `.govt.nz`, `.gov.br`, `.gob.mx`, `.gob.es`, `.bund.de`, `.admin.ch`, `destatis.de`), `sec.gov`, `rbi.org.in`, `iea.org` and IEA's own file host `iea.blob.core.windows.net` (that exact host only, never the shared `blob.core.windows.net`), `iea-pvps.org`, `arxiv.org`, `nature.com`, `ieee.org`, `who.int`, `nih.gov`, `nejm.org` |
+| Tier 2 · established editorial / reference | 0.65–0.84 | `reuters.com`, `bloomberg.com`, `ft.com`, `economist.com`, `apnews.com`, `scientificamerican.com`, independent energy analysts (`ember-energy.org`, `ren21.net`), first-party AI labs (`deepmind.google`, `research.google`, `openai.com`, `anthropic.com`, `ai.meta.com`: primary for their own releases but not independent, so not Tier 1) · uploads: 0.75 |
+| Tier 3 · general web | 0.30–0.64 | unrecognised domains (0.48), Medium (0.40), Reddit (0.32), Quora (0.30), market-research teaser pages such as `gminsights.com` and `grandviewresearch.com` (0.38–0.40: estimates with no published methodology, held below the admissibility floor even with every positive adjustment) |
 
 Small bounded adjustments (blog/forum paths −0.04, thin content −0.05, primary publication paths +0.02, dated +0.01, non-HTTPS −0.02) can never move a source out of its tier's band. Lookalike domains (`notreuters.com`, `sec.gov.evil.example`) don't inherit authority.
 
@@ -223,7 +238,7 @@ A claim the sources don't state may still be true; it just can't be traced, whic
 | Metric | Definition |
 | --- | --- |
 | Claim groundedness, pre-verification | Share of first-draft claims SUPPORTED by their cited source (iteration 1) |
-| Claim groundedness, post-verification | Share of claims in the **final report** that an **independent re-audit** (fresh claim decomposition and entailment, separate from the pipeline's own verdicts) finds SUPPORTED |
+| Claim groundedness, post-verification | Share of claims in the **final report** that a **fresh re-audit** finds SUPPORTED: a new claim decomposition and entailment check of the final text, with no pipeline verdict reused. It runs on the same Verifier agent, model and prompts, so it is a fresh check, not an independent judge |
 | Citation precision | Share of cited report claims whose cited source entails them (re-audit) |
 | Contradiction recall / false-positive rate | Expected conflicts surfaced (involving the planted low-authority domain) / conflicts invented on the control case |
 | Loop-back efficacy | Share of looped runs whose grounding or coverage improved after the loop-back |
@@ -235,38 +250,38 @@ By default retrieval uses the curated offline corpus. That makes runs reproducib
 ### Latest recorded results
 
 <!-- EVAL:START -->
-_Generated 2026-10-17T05:19:35+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (verifier: openai/gpt-5.1)`) · retrieval: **offline curated corpus** · max iterations 3_
+_Generated 2026-10-18T14:53:05+00:00 · LLM backend: **mesh** (`openai/gpt-5.1 (verifier: openai/gpt-5.1)`) · retrieval: **offline curated corpus** · max iterations 3_
 
 | Metric | Value |
 | --- | --- |
 | Claim groundedness, first draft (pre-verification) | 62% |
-| Claim groundedness, final report (independent re-audit) | 92% |
-| Citation precision (re-audit) | 92% |
-| Evidence quotes located verbatim | 98% |
+| Claim groundedness, final report (fresh re-audit, same Verifier model) | 89% |
+| Citation precision (re-audit) | 89% |
+| Evidence quotes located verbatim | 100% |
 | Contradiction recall | 50% |
 | Contradiction false-positive rate (control) | 0% |
-| Loop-back rate / efficacy | 17% / 100% |
+| Loop-back rate / efficacy | 17% / 0% |
 | Trap pass rate (false premise + thin evidence) | 100% |
 | Key-fact recall | 100% |
-| Claims stripped before publication | 229 |
-| Mean Mesh calls / run · total tokens | 50.17 · 653,397 |
+| Claims stripped before publication | 286 |
+| Mean Mesh calls / run · total tokens | 56.17 · 747,492 |
 
 | Case | Trap | Iter. | Grounding pre → re-audit | Coverage | Contradiction (expected → surfaced) | Trap | Key facts |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `energy-solar-2023` | - | 1 | 82% → 90% | 100% | yes → no | - | 100% |
-| `ai-transformer` | - | 1 | 80% → 96% | 100% | no → no | - | 100% |
-| `health-microplastics` | - | 1 | 47% → 93% | 100% | yes → yes | - | 100% |
-| `finance-rbi-repo` | - | 1 | 66% → 97% | 100% | yes → no | - | 100% |
-| `adversarial-great-wall` | false_premise | 1 | 80% → 86% | 100% | yes → yes | yes | 100% |
-| `thin-evidence-zentrix` | thin_evidence | 3 | 20% → 89% | 100% | no → no | yes | n/a |
+| `energy-solar-2023` | - | 1 | 69% → 87% | 100% | yes → no | - | 100% |
+| `ai-transformer` | - | 1 | 82% → 84% | 100% | no → no | - | 100% |
+| `health-microplastics` | - | 1 | 38% → 94% | 100% | yes → yes | - | 100% |
+| `finance-rbi-repo` | - | 1 | 86% → 95% | 100% | yes → no | - | 100% |
+| `adversarial-great-wall` | false_premise | 1 | 77% → 75% | 100% | yes → yes | yes | 100% |
+| `thin-evidence-zentrix` | thin_evidence | 3 | 17% → 100% | 100% | no → no | yes | n/a |
 <!-- EVAL:END -->
 
 > **How to read these numbers.** This run used real Mesh completions and embeddings (`openai/gpt-5.1` for the Planner, Drafter, Synthesizer, Master Approver, Report Approver and Verifier; `openai/gpt-5-mini` for the Researcher and FollowUp) with the default thresholds. Retrieval used the offline corpus, so the evidence and the planted conflicts are fixed. The model output is not deterministic, so expect a few points of variation between runs.
 >
-> - **First draft → final report** (62% → 92% grounded) is the verifier's effect: 229 unsupported or outweighed claims were stripped before publication.
-> - **Loop-backs paid off**: the one run that searched again (Zentrix) improved its grounding after the loop-back.
-> - **Zentrix is the hardest case.** The company is fictional and its only evidence is a forum rumour, so the first draft is mostly unsupported (20% grounded). It needed all three iterations and the report states that the evidence is insufficient instead of inventing figures. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
-- **Contradiction recall (50%) is the weak spot** with this model: two of the four planted conflicts (`energy-solar-2023`, `finance-rbi-repo`) were not surfaced.
+> - **First draft → final report** (62% → 89% grounded) is the verifier's effect: 286 unsupported or outweighed claims were stripped before publication. The final-report figure is a fresh re-audit by the same Verifier model, not an independent judge. One case came out lower than its first draft: the Great Wall trap (77% → 75%).
+> - **Loop-backs did not pay off on this run** (efficacy 0%). Zentrix, the only case that searched again, gained its grounding inside round 1, where quick fixes took it from 17% to at least the 40% it finished on. Its two extra research rounds raised neither grounding nor coverage.
+> - **Zentrix is the hardest case.** The company is fictional and its only evidence is a forum rumour, so the first draft is mostly unsupported (17% grounded). It used all three iterations, and the report states that the evidence is insufficient instead of inventing figures. 186 of the 286 stripped claims came from this case, and its 100% re-audit rests on a single claim. Trap cases are left out of the false-positive rate, which is measured on the control case (`ai-transformer`) only.
+> - **Contradiction recall (50%) is the weak spot** with this model: two of the four planted conflicts (`energy-solar-2023`, `finance-rbi-repo`) were not surfaced.
 >
 > To re-record, with `MESH_API_KEY` in `.env`:
 >
@@ -312,7 +327,7 @@ The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/
 
 ```bash
 python3 -m compileall src tests eval                    # syntax gate
-pytest                                                  # 176 hermetic tests, no network, ~6 s
+pytest                                                  # 229 hermetic tests, no network, ~9 s
 ruff check . && mypy src                                # lint / types (pip install ruff mypy)
 ```
 
@@ -429,7 +444,7 @@ Power tools:
 
 ## Testing
 
-204 hermetic tests run in about 8 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+229 hermetic tests run in about 9 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -437,7 +452,7 @@ Power tools:
 - **Master Approver and group chat:** the Verifier sends rejected claims back to the Drafter for a quick fix inside the round (exact hand-off sequence, unique claim ids, the cross-source scan reused, no new research), quick fixes stop as soon as one fails to raise grounding and a fix that makes things worse is not kept, and sub-questions without evidence go to the Master Approver instead; a weak plan is sent back and revised until it passes; revisions are bounded with open issues kept on record; model-raised blocking issues need rubric corroboration; the Master Approver cannot approve below the quality gate (the gate overrules it); extra rounds need a remaining gap and respect the extra-round cap, the round limit and the budget; it fails open on the model but not on the checks or the gate; the Researcher and Drafter really receive its instructions; deterministic plan checks; and chat messages that match the real hand-offs, the audit trail and the hash chain
 - **Report Approver:** an embellished sentence the sources don't support is sent back to the Synthesizer and fixed (exact hand-off sequence, report grounding before and after, checks billed to the Report Approver and kept out of the claim matrix, usage totals matching the traces), what still fails after the last fix is removed, conflict statements are never stripped, a Mesh outage leaves sentences flagged unchecked instead of removing them, sentences that are word for word a verified claim carry its verdict and repeated sentences get one verdict, the step can be switched off, and sentence-level rewrites leave every other sentence untouched
 - **Plain AI vs DeepDive:** the plain answer is decomposed and judged against the run's evidence (a correct sentence is credited with its verbatim quote, drifted figures and an unsourced forecast are not), the DeepDive side matches the report, the check is billed to the baseline and kept out of the claim matrix, the event is on the hash chain, evidence rehydrates after a restart, and the API creates, serves and guards the comparison, which also lands in the PDF
-- **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with the independent sentence re-check and the plain-AI row
+- **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with a fresh sentence re-check by the same Verifier model and the plain-AI row
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
 - **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
@@ -475,6 +490,7 @@ tests/           conftest (fakes, fixtures) + 8 test modules (incl. opt-in live 
 - Fuzzy quote matching is limited to ≥ 0.90 similarity with number locking. Heavily paraphrased quotes are rejected, which errs toward safety.
 - Guardrail patterns are deterministic, with the Guardian LLM as a second layer. Neither can anticipate every attack, so treat them as defence in depth, not a guarantee.
 - The URL shield validates DNS before connecting, but it does not pin the resolved IP for the connection itself (DNS-rebinding window). An egress proxy closes that gap in production.
+- Verification checks that a claim matches its cited source, not that the source is recent or relevant to the question. In a live run on "latest AI research in the last 3 months", a key finding described BERT (2018) because a cited page said so: the claim was faithful to its source, and still the wrong answer. Next steps here: a time-window check on published dates, a relevance check in the Report Approver, and multi-source corroboration for key findings.
 - Next steps: per-claim cross-source corroboration scores, Postgres + pgvector, and streaming token-level drafts.
 
 ## License

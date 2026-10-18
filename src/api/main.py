@@ -221,7 +221,7 @@ def create_app(services: ServiceContainer | None = None, settings: Settings | No
 
     app = FastAPI(
         title="DeepDive",
-        description="Self-verifying multi-agent research & claim-entailment system (Agent Arena 2026, Track 01).",
+        description="Self-verifying multi-agent research & claim-entailment system (Agent Arena 2026).",
         version=__version__,
         lifespan=lifespan,
     )

@@ -5,11 +5,16 @@ The rules are explicit and order-sensitive so a judge can audit exactly why a
 source was trusted:
 
     Tier 1 (0.85-1.00)  primary / official / peer-reviewed
-                        .gov  .edu  arxiv.org  nature.com  ieee.org  sec.gov
-                        rbi.org.in  iea.org  who.int  nih.gov ...
-    Tier 2 (0.65-0.84)  established editorial outlets & reference works
-                        reuters.com  bloomberg.com  ft.com  economist.com ...
-    Tier 3 (0.30-0.64)  everything else: blogs, Medium, forums, social media
+                        .gov  .edu  .gouv.fr  .go.jp  .bund.de  arxiv.org
+                        nature.com  ieee.org  sec.gov  rbi.org.in  iea.org
+                        iea.blob.core.windows.net  destatis.de  who.int ...
+    Tier 2 (0.65-0.84)  established editorial outlets & reference works,
+                        independent analysts, first-party AI labs
+                        reuters.com  bloomberg.com  ft.com  ember-energy.org
+                        deepmind.google  openai.com  anthropic.com ...
+    Tier 3 (0.30-0.64)  everything else: blogs, Medium, forums, social media,
+                        market-research teaser pages (kept below the
+                        admissibility floor)
 
 Scoring = base score of the first matching rule, then small bounded
 adjustments for content signals (thin content, blog/opinion paths, primary
@@ -57,6 +62,13 @@ TIER_1_DOMAINS: dict[str, float] = {
     "pnas.org": 0.93,
     "cell.com": 0.92,
     "bmj.com": 0.93,
+    # IEA's own file host. Exact host only: never add `blob.core.windows.net`,
+    # because anyone can host files on Azure Blob Storage.
+    "iea.blob.core.windows.net": 0.92,
+    "iea-pvps.org": 0.88,
+    "bundeswirtschaftsministerium.de": 0.90,
+    "bundesregierung.de": 0.90,
+    "destatis.de": 0.91,
 }
 TIER_1_SUFFIXES: dict[str, float] = {
     ".gov": 0.92,
@@ -71,6 +83,15 @@ TIER_1_SUFFIXES: dict[str, float] = {
     ".ac.in": 0.87,
     ".edu.au": 0.87,
     ".nic.in": 0.87,
+    ".gouv.fr": 0.91,
+    ".go.jp": 0.91,
+    ".gov.sg": 0.91,
+    ".govt.nz": 0.91,
+    ".gov.br": 0.90,
+    ".gob.mx": 0.90,
+    ".gob.es": 0.90,
+    ".bund.de": 0.90,
+    ".admin.ch": 0.90,
 }
 
 # --- Tier 2: established editorial / reference -------------------------------
@@ -103,6 +124,17 @@ TIER_2_DOMAINS: dict[str, float] = {
     "wired.com": 0.69,
     "techcrunch.com": 0.68,
     "wikipedia.org": 0.66,
+    # First-party AI labs: primary for their own releases but not independent,
+    # so Tier 2 rather than Tier 1.
+    "deepmind.google": 0.76,
+    "research.google": 0.76,
+    "blog.google": 0.72,
+    "openai.com": 0.74,
+    "anthropic.com": 0.74,
+    "ai.meta.com": 0.74,
+    # Independent energy analysts.
+    "ember-energy.org": 0.76,
+    "ren21.net": 0.76,
 }
 
 # --- Tier 3: explicitly low-authority platforms ------------------------------
@@ -122,6 +154,16 @@ TIER_3_DOMAINS: dict[str, float] = {
     "quora.com": 0.30,
     "twitter.com": 0.30,
     "x.com": 0.30,
+    # Market-research teaser pages: estimates with no published methodology.
+    # Scored so that even every positive adjustment (+0.02 at most) keeps them
+    # below the admissibility floor, so they can never support a claim.
+    "gminsights.com": 0.38,
+    "maximizemarketresearch.com": 0.38,
+    "fortunebusinessinsights.com": 0.38,
+    "marketresearchfuture.com": 0.38,
+    "sphericalinsights.com": 0.38,
+    "technavio.com": 0.40,
+    "grandviewresearch.com": 0.40,
 }
 TIER_3_DEFAULT = 0.48
 UPLOADED_DOCUMENT_SCORE = 0.75  # user-supplied: trusted context, unverifiable provenance
