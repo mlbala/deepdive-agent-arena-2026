@@ -1,4 +1,4 @@
-// Bootstrap: views (Live Demo / How it works / Console), appearance, command palette, shortcuts, deep links
+// Bootstrap: views (DeepDive / How it works / Console), appearance, command palette, shortcuts, deep links
 // (?view=demo|explorer|console&run=…&step=…&focus=…&tab=…&scenario=…&autorun=1).
 'use strict';
 import { $, $$, emit, on, store, toast } from './core.js';
@@ -53,8 +53,8 @@ function cycleTheme() {
 // ---------------------------------------------------------------- shortcuts sheet
 const SHORTCUTS = [
   ['⌘K / Ctrl K', 'Command palette: run scenarios, open runs, find claims and sources'],
-  ['1 · 2 · 3', 'Live Demo · How it works · Console'],
-  ['Space', 'Play / pause (Live Demo and How it works)'],
+  ['1 · 2 · 3', 'DeepDive · How it works · Console'],
+  ['Space', 'Play / pause (DeepDive and How it works)'],
   ['→ / ←', 'Next / previous step · next / previous claim in the Evidence Lens'],
   ['R', 'Reset the replay'],
   ['T', 'Cycle appearance: auto, light, dark'],

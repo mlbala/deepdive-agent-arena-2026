@@ -87,6 +87,12 @@ class SecurityMiddleware:
             if message["type"] == "http.response.start":
                 existing = {k.lower() for k, _ in message.get("headers", [])}
                 extra = [(k, v) for k, v in BASE_HEADERS if k not in existing]
+                # Fingerprinted dashboard assets never change under their URL; the plain /static path revalidates
+                # on every load (a 304 via ETag when unchanged), so neither can serve a stale stylesheet or module.
+                path = scope.get("path", "")
+                if b"cache-control" not in existing and path.startswith(("/assets/", "/static/")):
+                    policy = b"public, max-age=31536000, immutable" if path.startswith("/assets/") else b"no-cache"
+                    extra.append((b"cache-control", policy))
                 message["headers"] = [*message.get("headers", []), *extra, (b"x-request-id", request_id.encode())]
             await send(message)
 

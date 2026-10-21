@@ -11,6 +11,7 @@ from pypdf import PdfReader
 
 from eval.simulated_llm import HeuristicMeshSimulator
 from src.api.main import ServiceContainer, create_app
+from src.api.routes import asset_version
 
 RBI_Q = "How does the Reserve Bank of India use the repo rate to control inflation?"
 
@@ -55,7 +56,7 @@ def test_health_exposes_config_without_secrets(make_settings):
 
 def test_dashboard_renders(client):
     html = client.get("/").text
-    for marker in ("Live Demo", "LangGraph execution", "How DeepDive works", "archSvg", "dScenarios", "cmdkInput", "lensBody", "/static/js/app.js"):
+    for marker in ('data-view="demo" aria-selected="true">DeepDive<', "dQuestion", "dRounds", "LangGraph execution", "How DeepDive works", "archSvg", "dScenarios", "cmdkInput", "lensBody", "/js/app.js"):
         assert marker in html
     for module in ("palette", "lens", "charts"):
         assert client.get(f"/static/js/{module}.js").status_code == 200
@@ -202,6 +203,18 @@ def test_security_headers_csp_nonce_and_request_id(client):
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["x-request-id"] == "abc-123"
     assert client.get("/api/health").headers["x-request-id"]  # generated when absent
+
+
+def test_dashboard_assets_are_fingerprinted_so_a_redeploy_is_never_stale(client):
+    page = client.get("/")
+    assert page.headers["cache-control"] == "no-store"
+    prefix = page.text.split('href="/assets/')[1].split("/css/app.css")[0]
+    assert prefix == asset_version() and f'src="/assets/{prefix}/js/app.js"' in page.text
+    for module in ("css/app.css", "js/app.js", "js/demo.js"):  # relative ES-module imports resolve under the prefix
+        response = client.get(f"/assets/{prefix}/{module}")
+        assert response.status_code == 200 and response.headers["cache-control"] == "public, max-age=31536000, immutable"
+        unversioned = client.get(f"/static/{module}")
+        assert unversioned.headers["cache-control"] == "no-cache" and unversioned.headers["etag"]
 
 
 def test_cors_is_restricted_to_configured_origins(client):

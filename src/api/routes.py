@@ -34,6 +34,7 @@ import json
 import time
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -122,6 +123,24 @@ def _run_or_404(svc: ServiceContainer, run_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # UI + meta
 # ---------------------------------------------------------------------------
+
+ASSETS_DIR = Path(__file__).parent / "static"
+
+
+def asset_version() -> str:
+    """Fingerprint of the dashboard assets from each file's path, size and mtime (one stat per file, no reads).
+
+    The page links its stylesheet and entry module under /assets/<fingerprint>/, served as immutable. Any edit or
+    deploy changes the prefix, and the relative ES-module imports inherit it, so no browser pairs fresh HTML
+    with a stale stylesheet or module.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(p for p in ASSETS_DIR.rglob("*") if p.is_file()):
+        stat = path.stat()
+        digest.update(f"{path.relative_to(ASSETS_DIR).as_posix()}:{stat.st_size}:{stat.st_mtime_ns};".encode())
+    return digest.hexdigest()[:12]
+
+
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request) -> HTMLResponse:
     svc = services(request)
@@ -129,7 +148,7 @@ async def index(request: Request) -> HTMLResponse:
     response: HTMLResponse = request.app.state.templates.TemplateResponse(
         request,
         "index.html",
-        {"config": svc.settings.public_summary(), "version": __version__, "csp_nonce": nonce},
+        {"config": svc.settings.public_summary(), "version": __version__, "csp_nonce": nonce, "asset_version": asset_version()},
     )
     response.headers["Content-Security-Policy"] = content_security_policy(nonce)
     response.headers["Cache-Control"] = "no-store"

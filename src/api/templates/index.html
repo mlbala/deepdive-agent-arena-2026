@@ -38,7 +38,7 @@
       },
     };
   </script>
-  <link rel="stylesheet" href="/static/css/app.css" />
+  <link rel="stylesheet" href="/assets/{{ asset_version }}/css/app.css" />
 </head>
 <body class="min-h-full font-sans text-slate-200 antialiased">
   <!-- ================================================================ header -->
@@ -49,7 +49,7 @@
         <span class="text-[15px] font-semibold tracking-tight text-slate-100">DeepDive</span>
       </a>
       <nav class="segmented order-last w-full sm:order-none sm:mx-auto sm:w-auto" role="tablist" aria-label="Views">
-        <button class="view-tab" data-view="demo" aria-selected="true">Live Demo</button>
+        <button class="view-tab" data-view="demo" aria-selected="true">DeepDive</button>
         <button class="view-tab" data-view="explorer" aria-selected="false">How it works</button>
         <button class="view-tab" data-view="console" aria-selected="false">Console</button>
       </nav>
@@ -70,17 +70,34 @@
     <p class="mt-3 text-[12px] leading-relaxed text-slate-400">Every model call goes through the Mesh API gateway. Retrieval cascades Tavily → DuckDuckGo → offline corpus. Every decision is written to a hash-chained audit trail.</p>
   </div>
 
-  <!-- ============================================================= LIVE DEMO -->
-  <div id="view-demo" class="mx-auto max-w-[1600px] space-y-4 p-4">
-    <section class="flex flex-wrap items-end gap-4 pb-1 pt-4">
-      <div class="min-w-0">
+  <!-- ============================================================== DEEPDIVE -->
+  <!-- data-stage: "idle" centres the composer on the first screen; "run" folds it into a query bar above the workspace -->
+  <div id="view-demo" class="mx-auto max-w-[1600px] space-y-4 p-4" data-stage="idle">
+    <section class="dhero" aria-label="Ask DeepDive">
+      <div class="dhero-intro">
+        <span class="dhero-eyebrow"><i aria-hidden="true"></i>Self-verifying multi-agent research</span>
         <h1 class="hero-title">Research you can <span class="hero-accent">verify</span>.</h1>
         <p class="hero-sub">AI search engines fully back only <b class="text-slate-200">51.5%</b> of their sentences with citations, and only <b class="text-slate-200">74.5%</b> of their citations support the sentence they're attached to (<a class="link" href="https://arxiv.org/abs/2304.09848" target="_blank" rel="noopener noreferrer">Liu et al., 2023</a>). DeepDive publishes a sentence only after it finds a verbatim quote for it in the cited source.</p>
       </div>
-      <div class="ml-auto hidden flex-wrap items-center gap-2 text-[11px] text-slate-500 md:flex"><kbd>Space</kbd> play/pause <kbd>→</kbd> next step <kbd>R</kbd> reset</div>
+      <div class="dcomposer" role="search">
+        <textarea id="dQuestion" rows="1" maxlength="1000" placeholder="Ask a research question…" aria-label="Research question"></textarea>
+        <div class="dcomposer-bar">
+          <label class="dcomposer-opt" title="The most research rounds the Master Approver may order before it must decide">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+            Rounds
+            <select id="dRounds" aria-label="Maximum research rounds"><option>1</option><option>2</option><option selected>3</option><option>4</option></select>
+          </label>
+          <button id="dNew" class="dcomposer-ghost hidden" title="Clear the question and start over">＋ New research</button>
+          <span class="flex-1"></span>
+          <button id="dReplay" class="dcomposer-ghost hidden"></button>
+          <button id="dRun" class="drun"><span class="dicon">▶</span> Run DeepDive</button>
+        </div>
+      </div>
+      <div class="dhero-foot">
+        <span class="hidden items-center gap-1.5 sm:inline-flex"><kbd>↵</kbd> to run <span class="mx-1 text-slate-600">·</span> <kbd>⇧</kbd><kbd>↵</kbd> new line</span>
+        <button class="link" data-goto="explorer">Browse example scenarios →</button>
+      </div>
     </section>
-
-    <section id="dScenarios" class="grid gap-3 md:grid-cols-2 xl:grid-cols-3"></section>
 
     <section class="panel overflow-x-auto px-5 pb-4 pt-5 scroll-thin" aria-label="Agent pipeline">
       <div class="min-w-[1040px]">
@@ -92,10 +109,8 @@
     <div class="grid grid-cols-12 gap-4">
       <aside class="col-span-12 min-w-0 space-y-4 lg:col-span-3">
         <section class="panel p-4">
-          <div class="panel-h mb-2">Question</div>
-          <textarea id="dQuestion" rows="4" maxlength="1000" class="w-full resize-none rounded-lg border border-ink-600 bg-ink-900 p-3 text-[14px] leading-snug text-slate-100 focus:border-indigo-500 focus:outline-none" aria-label="Research question"></textarea>
-          <button id="dRun" class="drun mt-3 w-full"><span class="dicon">▶</span> Run DeepDive</button>
-          <div class="mt-2 grid grid-cols-3 gap-2">
+          <div class="panel-h mb-2">Playback</div>
+          <div class="grid grid-cols-3 gap-2">
             <button id="dPause" class="seg-btn" title="Play / pause (Space)">▶</button>
             <button id="dStep" class="seg-btn" title="Next step (→)">⏭</button>
             <button id="dReset" class="seg-btn" title="Reset (R)">↺</button>
@@ -105,7 +120,7 @@
             <div class="seg"><button data-mode="auto" class="on">Auto</button><button data-mode="step">Step</button></div>
           </div>
           <div class="mt-3 flex items-center"><button id="dSkip" class="link text-[12px]">Skip to result →</button><span id="dProgress" class="ml-auto font-mono text-[10.5px] text-slate-500"></span></div>
-          <button id="dReplay" class="btn-ghost mt-2 hidden w-full justify-center text-[11.5px]"></button>
+          <div class="mt-3 hidden flex-wrap items-center gap-1.5 border-t border-ink-700 pt-3 text-[11px] text-slate-500 md:flex"><kbd>Space</kbd> play/pause <kbd>→</kbd> step <kbd>R</kbd> reset</div>
         </section>
         <section class="panel p-4">
           <div class="panel-h mb-2">Stages</div>
@@ -208,6 +223,14 @@
       </div>
     </section>
 
+    <section aria-labelledby="xScenariosTitle">
+      <div class="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 id="xScenariosTitle" class="text-[17px] font-semibold tracking-tight text-slate-100">Example scenarios</h2>
+        <p class="text-[13px] text-slate-400">Six questions, each built to test a different safeguard. Pick one to load it into DeepDive.</p>
+      </div>
+      <div id="dScenarios" class="grid gap-3 md:grid-cols-2 xl:grid-cols-3"></div>
+    </section>
+
     <nav id="xSubnav" class="segmented w-full overflow-x-auto sm:w-auto" role="tablist" aria-label="How it works views">
       <button class="view-tab" data-xview="graph" aria-selected="true">Live graph</button>
       <button class="view-tab" data-xview="workflow" aria-selected="false">Workflow</button>
@@ -275,6 +298,6 @@
     </form>
   </div>
 
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/assets/{{ asset_version }}/js/app.js"></script>
 </body>
 </html>

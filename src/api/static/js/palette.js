@@ -19,7 +19,7 @@ function score(text, query) {
 async function buildItems(scenarios) {
   const runId = store.runId;
   const items = [
-    { group: 'Navigate', icon: '◎', label: 'Live Demo', sub: '1', run: () => emit('navigate', { view: 'demo' }) },
+    { group: 'Navigate', icon: '◎', label: 'DeepDive: ask a research question', sub: '1', run: () => emit('navigate', { view: 'demo' }) },
     { group: 'Navigate', icon: '⌁', label: 'How it works: architecture explorer', sub: '2', run: () => emit('navigate', { view: 'explorer' }) },
     { group: 'Navigate', icon: '▤', label: 'Console', sub: '3', run: () => emit('navigate', { view: 'console' }) },
     { group: 'Navigate', icon: '◔', label: 'Insights for the current run', sub: 'charts', run: () => emit('navigate', { view: 'console', params: { tab: 'insights' } }) },

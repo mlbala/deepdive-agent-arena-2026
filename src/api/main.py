@@ -234,6 +234,8 @@ def create_app(services: ServiceContainer | None = None, settings: Settings | No
     )
     app.add_middleware(SecurityMiddleware, max_body_bytes=effective.max_request_bytes)
     app.state.templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+    # The page loads its assets from /assets/<fingerprint>/ (see routes.asset_version); /static stays for direct links.
+    app.mount("/assets/{version}", StaticFiles(directory=str(STATIC_DIR)), name="assets")
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.exception_handler(DeepDiveError)
