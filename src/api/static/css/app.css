@@ -229,6 +229,42 @@ mark.q-focus { box-shadow: 0 0 0 2px rgb(var(--accent)); background: rgb(var(--a
 .hero-accent { background: linear-gradient(100deg, rgb(var(--accent)), rgb(var(--purple)) 60%, rgb(var(--pink))); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero-sub { margin-top: 10px; max-width: 920px; font-size: 16px; line-height: 1.5; color: rgb(var(--t-3)); letter-spacing: -.01em; }
 .hero-sub b { color: rgb(var(--t-1)); font-weight: 600; }
+/* DeepDive tab: the composer is centred on the first screen while idle, then folds into a query bar once a run is on screen */
+.dhero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 52px 0 20px; }
+.dhero .hero-sub { margin-left: auto; margin-right: auto; }
+.dhero-intro { display: flex; flex-direction: column; align-items: center; }
+.dhero-eyebrow { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 18px; padding: 5px 13px 5px 11px; border-radius: 999px; background: rgb(var(--card)); border: 1px solid var(--line); box-shadow: var(--shadow-1); font-size: 12.5px; font-weight: 500; color: rgb(var(--t-2)); }
+.dhero-eyebrow i { width: 7px; height: 7px; border-radius: 99px; background: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--purple))); }
+.dcomposer { width: 100%; max-width: 860px; margin-top: 34px; text-align: left; border-radius: 26px; background: rgb(var(--card)); border: 1px solid var(--line-strong); box-shadow: var(--shadow-1); transition: border-color .2s ease, box-shadow .2s ease; }
+.dcomposer:focus-within { border-color: rgb(var(--accent) / .55); box-shadow: 0 0 0 4px rgb(var(--accent) / .14), var(--shadow-1); }
+.dcomposer textarea { display: block; width: 100%; min-height: 82px; max-height: 210px; padding: 18px 22px 6px; resize: none; border: 0; background: transparent; font-size: 17px; line-height: 1.5; color: rgb(var(--t-1)); }
+.dcomposer textarea:focus, .dcomposer textarea:focus-visible { outline: none; }
+.dcomposer textarea::placeholder { color: rgb(var(--t-4)); }
+.dcomposer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px 10px 14px; }
+.dcomposer-opt { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 6px 0 11px; border-radius: 999px; background: var(--fill); font-size: 12.5px; font-weight: 500; color: rgb(var(--t-3)); cursor: pointer; }
+.dcomposer-opt svg { width: 15px; height: 15px; }
+.dcomposer-opt select { background: transparent; border: 0; padding: 0 2px; font: inherit; font-weight: 600; color: rgb(var(--t-1)); cursor: pointer; }
+.dcomposer-opt select:focus-visible { outline: none; }
+.dcomposer-opt:focus-within { box-shadow: 0 0 0 3px rgb(var(--accent) / .35); }
+.dcomposer-ghost { height: 34px; padding: 0 14px; border-radius: 999px; font-size: 12.5px; font-weight: 500; white-space: nowrap; color: rgb(var(--accent-t)); background: rgb(var(--accent) / .1); transition: background .2s ease; }
+.dcomposer-ghost:hover { background: rgb(var(--accent) / .18); }
+.dcomposer .drun { padding: 9px 20px; font-size: 14.5px; }
+.dhero-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 22px; margin-top: 16px; font-size: 12px; color: rgb(var(--t-4)); }
+.dhero-foot .link { font-size: 13px; font-weight: 500; }
+#view-demo[data-stage="run"] .dhero { min-height: 0; padding: 4px 0 0; }
+#view-demo[data-stage="run"] .dhero-intro, #view-demo[data-stage="run"] .dhero-foot { display: none; }
+#view-demo[data-stage="run"] .dcomposer { display: flex; align-items: flex-end; max-width: 1080px; margin-top: 0; border-radius: 22px; }
+#view-demo[data-stage="run"] .dcomposer textarea { flex: 1; min-width: 0; min-height: 0; padding: 14px 6px 14px 20px; font-size: 15.5px; }
+#view-demo[data-stage="run"] .dcomposer-bar { flex-wrap: nowrap; padding: 8px; }
+#view-demo[data-stage="run"] .dcomposer-bar > .flex-1 { display: none; }
+@media (max-width: 640px) {
+  .dhero { padding: 20px 0 8px; }
+  .dcomposer textarea { font-size: 16px; padding: 16px 16px 4px; }
+  .dcomposer .drun { width: 100%; }
+  #view-demo[data-stage="run"] .dcomposer { flex-wrap: wrap; }
+  #view-demo[data-stage="run"] .dcomposer textarea { flex-basis: 100%; }
+  #view-demo[data-stage="run"] .dcomposer-bar { flex-wrap: wrap; width: 100%; }
+}
 .dcard { position: relative; display: flex; gap: 14px; text-align: left; padding: 18px 20px; border-radius: 20px; border: 1px solid var(--line); background: rgb(var(--card)); box-shadow: var(--shadow-1); transition: transform .35s var(--spring), box-shadow .35s var(--spring), border-color .2s ease; }
 .dcard:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
 .dcard.selected { border-color: rgb(var(--accent)); box-shadow: 0 0 0 3px rgb(var(--accent) / .18), var(--shadow-1); }

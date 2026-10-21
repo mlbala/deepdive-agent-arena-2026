@@ -17,7 +17,7 @@ One row per judging criterion: where to look in the code, and the evidence for i
 | 5. Foundation, data model and real ingestion | Pydantic v2 contracts in [`src/schemas/domain.py`](src/schemas/domain.py), `ResearchState` with `merge_dicts` / `append_list` reducers in [`src/schemas/state.py`](src/schemas/state.py), the SQLAlchemy audit store in [`src/storage/database.py`](src/storage/database.py), and the Tavily → DuckDuckGo → offline retriever in [`src/tools/web_search.py`](src/tools/web_search.py) | `test_full_run_persists_a_consistent_audit_record`, `test_tavily_failure_falls_back_to_duckduckgo`, `test_everything_down_falls_back_to_offline_corpus` |
 | 6. Self-evaluation | [`eval/benchmark_questions.json`](eval/benchmark_questions.json) (six cases, two of them traps), [`eval/run_eval.py`](eval/run_eval.py) (benchmark, plus a one-layer-off ablation with `--ablation`), results in [`eval/latest_results.json`](eval/latest_results.json) | Six cases end to end on Mesh: 56 Mesh calls per run, 747,492 tokens in total, with the weak spots reported as measured (contradiction recall 50%, loop-back efficacy 0%). `test_eval_harness_smoke`, `test_ablation_harness_switches_one_layer_off_per_configuration` |
 | 7. Auditable decision trail | The SHA-256 hash-chained `audit_events` table in [`src/storage/database.py`](src/storage/database.py) (`verify_audit_chain`), `GET /api/runs/{id}/audit/verify` and `GET /api/runs/{id}/bundle` | `test_audit_chain_detects_tampering`. 100% of evidence quotes located verbatim in their cited source, each stored with exact character offsets |
-| 8. Code quality and reproducibility | 229 hermetic tests (no network), ruff and mypy clean, a multi-stage [`Dockerfile`](Dockerfile), and the official CI workflow [`.github/workflows/agent-arena-2026-checks.yml`](.github/workflows/agent-arena-2026-checks.yml) | `pytest`: 229 passed, 3 opt-in live tests skipped. `test_outputs_are_computed_from_the_query_not_hardcoded` |
+| 8. Code quality and reproducibility | 230 hermetic tests (no network), ruff and mypy clean, a multi-stage [`Dockerfile`](Dockerfile), and the official CI workflow [`.github/workflows/agent-arena-2026-checks.yml`](.github/workflows/agent-arena-2026-checks.yml) | `pytest`: 230 passed, 3 opt-in live tests skipped. `test_outputs_are_computed_from_the_query_not_hardcoded` |
 
 ---
 
@@ -38,7 +38,7 @@ DeepDive treats verification as part of the product, not a disclaimer:
 | Web pages that hijack the model ("ignore previous instructions…") | A **content shield** neutralises injected text before it is indexed |
 | "Trust me" answers | A **hash-chained audit trail**, an Evidence Lens for every claim, and a one-click audit bundle |
 
-**Measured on every run.** The Live Demo's *Trust ledger* and the Insights tab report, for each run: claims checked, claims published, claims stopped, fabricated quotes caught, weak sources overruled, conflicts surfaced, guardrail decisions, and the Mesh tokens spent. These are counts from that run, not estimates.
+**Measured on every run.** The DeepDive tab's *Trust ledger* and the Insights tab report, for each run: claims checked, claims published, claims stopped, fabricated quotes caught, weak sources overruled, conflicts surfaced, guardrail decisions, and the Mesh tokens spent. These are counts from that run, not estimates.
 
 **Who it is for:** due-diligence and investment analysts, fact-checkers and newsrooms, policy and research teams, compliance and risk functions, and anyone who needs research they can defend line by line.
 
@@ -327,7 +327,7 @@ The image is multi-stage (`python:3.12-slim`), runs as a non-root user, has a `/
 
 ```bash
 python3 -m compileall src tests eval                    # syntax gate
-pytest                                                  # 229 hermetic tests, no network, ~9 s
+pytest                                                  # 230 hermetic tests, no network, ~9 s
 ruff check . && mypy src                                # lint / types (pip install ruff mypy)
 ```
 
@@ -402,11 +402,22 @@ Interactive OpenAPI docs: `http://localhost:8000/docs`.
 
 An Apple-style interface: system typography, glass navigation, a segmented mode switch, and **light and dark appearance** (it follows your OS; press <kbd>T</kbd> to switch). Everything is keyboard-first.
 
-**Live Demo** (the landing page) runs six scenarios for real, or replays recorded runs, stage by stage: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with **Plain AI vs DeepDive** (ask a plain AI the same question and see its claims checked against the same evidence) and a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
+The header switches between three tabs: **DeepDive**, **How it works**, and **Console**.
+
+**DeepDive** (the first tab and landing page) is built around one research composer, in two states:
+
+| State | What you see |
+| --- | --- |
+| **Ready** | The composer sits in the centre of the first screen, under the headline: the question, a **Rounds** selector (1 to 4, the most research rounds the Master Approver may order, sent as `max_iterations`), **Replay recorded run** when a recording of that question exists, and **Run DeepDive**. <kbd>Enter</kbd> runs, <kbd>Shift</kbd>+<kbd>Enter</kbd> adds a line, and a link opens the example scenarios. The agent pipeline is visible underneath |
+| **Run** | Once a live run or a replay is on screen, the headline folds away and the composer becomes a query bar above the workspace. Edit the question and Run researches the new one instead of resuming the old run; **New research** clears it and returns to the Ready state |
+
+Every run is real or a replay of a real recording, played stage by stage. Paced playback (Auto/Step, 1×/2×/4×, skip to result, <kbd>Space</kbd>/<kbd>→</kbd>/<kbd>R</kbd>, in the Playback panel) narrates the run: the shield checklist, sub-questions, scored sources, cited drafts, claim verdicts against the grounding and coverage thresholds, the "not enough proof → search again" loop, the report, and the sealed audit trail. It ends with **Plain AI vs DeepDive** (ask a plain AI the same question and see its claims checked against the same evidence) and a **Trust ledger** of what the run protected you from. A badge always says whether you are watching a live run or a replay.
 
 The **agent pipeline** above the stages puts the **Master Approver** on top, with its plan gate and round gate. Live wires connect it to every agent: "plan" and "revise" with the Planner; "dispatch" or "another round", "instructions" and "round report" with the Researcher, Drafter and Verifier in the **evidence group chat**; and "approved" to the Synthesizer. Inside the group, a "quick fix ×N" wire runs from the Verifier back to the Drafter, and each quick fix gets its own stage showing the claims sent back, the revised draft and grounding before and after. Each card shows its live result, its round (R2, R3…) and its Mesh calls and tokens. Beside the stages, the **Group chat** panel plays the agents' conversation in sync with the replay: who handed what to whom, the Master Approver's issues, fixes and instructions, the Verifier's rejected claims, and every decision with its score. The **Master Approver reviews round N** stage shows its rationale, the instructions it gave each agent and the gauges against the gate. The console has the same transcript under **Agent Chat**.
 
-**How it works** is an interactive map of DeepDive's own LangGraph, with the Master Approver as the hub above the evidence group chat, the input and output shields, the evidence index, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
+**How it works** opens with six **example scenarios**, each built to test a different safeguard: energy, monetary policy, public health, a false premise, unverifiable due diligence, and a prompt-injection attack. Each card says what to watch for and whether a recorded run exists; picking one loads its question into the DeepDive tab, ready to run or replay. The scenarios are inputs only, and every output is computed by the run.
+
+Below them is an interactive map of DeepDive's own LangGraph, with the Master Approver as the hub above the evidence group chat, the input and output shields, the evidence index, the Mesh gateway, and the audit trail. You can replay any run event by event or follow a live run as it executes. Hover any node for its contract, its guardrails, and its numbers at the current step.
 
 The view has five tabs:
 
@@ -428,7 +439,8 @@ Power tools:
 - **Evidence Lens**: any claim beside its cited source, with the exact verified span in focus (the character offsets come from the audit trail). Step through claims with <kbd>←</kbd>/<kbd>→</kbd> and filter to stopped claims. Shareable with `?lens=<claim_id>`.
 - **Insights**: grounding and coverage per iteration against their thresholds, the verdict mix, source authority against the tier boundaries and admissibility floor, and Mesh tokens by agent. Each chart has hover tooltips and a table view, and the colour palette has been checked with a colour-vision-deficiency validator.
 - **Audit bundle**: `GET /api/runs/{id}/bundle` returns the run, report, claims, sources, audit events, chain verification and policy as one JSON file, with an `X-Bundle-SHA256` header.
-- **Deep links**: `?view=demo|explorer|console&xview=graph|workflow|agents|state|timeline&run=…&step=…&focus=…&tab=…&lens=…&scenario=N&autorun=1`.
+- **Deep links**: `?view=demo|explorer|console&xview=graph|workflow|agents|state|timeline&run=…&step=…&focus=…&tab=…&lens=…&scenario=N&autorun=1` (`view=demo` is the DeepDive tab).
+- **Always-fresh assets**: the page links its stylesheet and ES modules under `/assets/<fingerprint>/`, a hash of the asset files' paths, sizes and modification times, served as `immutable`. Any change to the UI changes the URL, and the modules' relative imports inherit it, so a browser never pairs a new page with a cached old stylesheet or module. The page itself is `no-store`, and the plain `/static/` path revalidates on every load.
 
 ---
 
@@ -444,7 +456,7 @@ Power tools:
 
 ## Testing
 
-229 hermetic tests run in about 9 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
+230 hermetic tests run in about 9 seconds with no network. Three more in [`tests/test_live_mesh.py`](tests/test_live_mesh.py) call the real Mesh API (a structured completion and embeddings, a full grounded run, and an injection blocked before any Mesh call); they are skipped unless `DEEPDIVE_LIVE_TESTS=1`. The simulator (`HeuristicMeshSimulator`) and `FakeMeshClient` implement the same client interface the gateway calls, so the full LangGraph pipeline runs exactly as in production:
 
 - **Gateway:** structured output, self-healing repair rounds, exponential backoff with jitter and `Retry-After`, `response_format`/`temperature` fallbacks, token and latency accounting, immutable trace rows, Mesh-only compliance scans
 - **Tools:** authority tiers and bands, lookalike domains, the Tavily → DDG → offline cascade (Tavily must be called with `include_answer=False`), HTML/PDF extraction, span-exact chunking, BM25/RRF, hybrid retrieval through Mesh embeddings, degradation to sparse-only
@@ -455,7 +467,7 @@ Power tools:
 - **Evaluation harness:** the benchmark smoke run, and the ablation switching exactly one layer off per configuration with a fresh sentence re-check by the same Verifier model and the plain-AI row
 - **Orchestrator:** graph topology, persisted span and quote integrity, live and persisted audit order, uploads joining the evidence pool, failure auditing, follow-up rehydration, false-premise and rumour handling
 - **Guardrails:** checksum-validated PII (Luhn, Verhoeff), secret redaction, log masking, benign/harmful/injection pattern suites, input/content/output shields, hidden-HTML stripping, SSRF (private IPs, metadata hosts, redirects, size caps), model allowlist, hard and soft budgets, blocked runs, Guardian blocks, poisoned sources, audit-chain tamper detection, retention purge
-- **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
+- **API:** full lifecycle, SSE streaming and replay, PDF content, upload dedupe and shielding, CSP nonce and security headers, fingerprinted dashboard assets and their cache headers, CORS, API-key auth, rate limits, body-size cap, concurrent-run cap, governance endpoints, no leakage of internals in 500 responses
 
 ## Project structure
 
