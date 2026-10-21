@@ -56,7 +56,7 @@ Most research assistants generate an answer and attach links afterwards. Citatio
 | Hallucinated quotes go unnoticed | Each evidence quote must be found in the source text (exact → normalised → elliptical → fuzzy with number locking), otherwise the verdict is downgraded |
 | Conflicts between sources are hidden | A contradiction radar validates both sides' quotes and states which source carries more authority |
 | A forum post counts as much as a regulator | Deterministic Tier 1/2/3 authority scores; evidence below an admissibility floor can't support a claim |
-| Failed answers ship anyway | `route_verification` loops back to the Researcher with targeted queries for the failing sub-questions only |
+| Failed answers ship anyway | The Master Approver sends the group back with targeted queries for the failing sub-questions only, and the `route_verification` quality gate makes another round mandatory below the bar; the finished report is then re-checked sentence by sentence |
 | Rejected content disappears | Rejected claims are removed from the report but kept in `claims_audit`, `removed_claims`, and the PDF appendix |
 
 ---
@@ -74,27 +74,29 @@ flowchart LR
         IG[0 · Input shield<br/>+ Guardian LLM screen] -->|passed| P[1 · Planner<br/>MECE sub-questions]
         IG -->|blocked| X([END · blocked run])
         P -->|plan| L{{2 · Master Approver<br/>approves the plan + every round · instructions}}
-        L -->|revise: score &lt; 0.80 or blocking issue| P
+        L -->|revise: score below 0.80 or blocking issue · max 2| P
         L -->|dispatch / another round + instructions| R
         subgraph EV[Evidence group chat]
             R[3 · Researcher<br/>retrieve · shield · score · index] --> D[4 · Drafter<br/>cited drafts]
             D --> V[5 · Verifier<br/>claims · entailment · guards<br/>contradiction radar · metrics]
-            V -.->|quick fix: rejected claims, same evidence| D
+            V -.->|quick fix: rejected claims, same evidence · max 2 per round| D
         end
         V -->|round report| L
         L -->|approved: gate met · max rounds · budget soft limit| S[6 · Synthesizer<br/>verified report + citation guard]
         S --> RA{{7 · Report Approver<br/>re-checks every cited sentence}}
-        RA -.->|fix: failing sentences| S
+        RA -.->|fix: failing sentences · max 1 round| S
         RA -->|approved · what still fails is removed| OG[Output shield<br/>redaction + governance summary]
+        OG --> Z([END · published report])
     end
 
     OG --> DB[(SQLite audit store · SHA-256 hash-chained<br/>runs · agent_traces · claims_audit<br/>sources · evidence · audit_events)]
     R <--> VS[(Hybrid evidence index<br/>BM25 + ChromaDB)]
     R --> WR{{3-tier retriever + URL shield<br/>Tavily → DDG+BS4 → offline corpus}}
-    IG & P & L & R & D & V & S & RA -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing<br/>model allowlist · run budgets]
+    API --> F[8 · FollowUp agent<br/>grounded chat] --> VS
+    API --> BL[9 · Plain AI baseline · on demand<br/>one plain answer, judged with the Verifier's guards] --> VS
+    IG & P & L & R & D & V & S & RA & F & BL -.->|every LLM / embedding call| MG[MeshGateway<br/>retries · JSON repair · tracing<br/>model allowlist · run budgets]
     MG --> MESH[(Mesh API)]
     G -.->|audit events + traces| BUS[RunEventBus] -->|SSE| U
-    API --> F[8 · FollowUp agent<br/>grounded chat] --> VS
 ```
 
 The compiled graph (`GET /api/graph` returns it live) is a supervisor pattern with the **Master Approver** (`master`) as its hub, plus one guard edge:
@@ -132,23 +134,32 @@ Every agent prompt starts with a stable `ROLE:` line and sends its input as a JS
 
 ### The verification pipeline (the core of the system)
 
+Each claim goes through the same steps, in this order (`judge_claims` and `_apply_guards` in [`src/agents/verifier.py`](src/agents/verifier.py)). Every downgrade turns the verdict into UNSUPPORTED and records the reason in the audit trail:
+
 ```mermaid
 flowchart TD
-    A[Draft section with SRC citations] --> B[Atomic claim decomposition<br/>LLM, falls back to sentence split]
-    B --> C{Claim cites a<br/>retrieved source?}
-    C -- no --> U1[UNSUPPORTED<br/>no LLM call]
-    C -- yes --> E[Retrieve the cited sources' best spans<br/>BM25 + dense, filtered to cited ids]
-    E --> J[Entailment judgement<br/>SUPPORTED · CONTRADICTED · UNSUPPORTED<br/>+ verbatim quote + confidence]
-    J --> G1{Quote found in the<br/>cited source text?}
-    G1 -- no --> X[Downgrade: possible hallucinated evidence]
-    G1 -- yes --> G2{Evidence source is one<br/>the claim cites?}
-    G2 -- no --> X2[Downgrade: miscited]
-    G2 -- yes --> G3{Confidence ≥ 0.5 and every<br/>number in the claim is in the source?}
-    G3 -- no --> X3[Downgrade: low confidence / ungrounded figure]
-    G3 -- yes --> G4{Source authority ≥<br/>admissibility floor 0.45?}
-    G4 -- no --> X4[Downgrade: inadmissible source]
-    G4 -- yes --> OK[Verdict stands<br/>quote stored with exact char offsets]
+    A[Draft section with SRC citations] --> B[Atomic claim decomposition<br/>LLM · falls back to one claim per cited sentence]
+    B --> C{Cites a retrieved source,<br/>and a span of it can be retrieved?}
+    C -- no --> U0[UNSUPPORTED<br/>no LLM call]
+    C -- yes --> E[Best spans of the cited sources only<br/>BM25 + dense · at most 2 chunks per source]
+    E --> J[Entailment judgement · batched · temperature 0<br/>SUPPORTED · CONTRADICTED · UNSUPPORTED<br/>+ evidence quote + confidence]
+    J -- call failed --> U1[UNSUPPORTED<br/>fails closed]
+    J -- UNSUPPORTED --> K[Verdict stands<br/>a located quote is stored as the source's own text<br/>with exact char offsets]
+    J -- SUPPORTED or CONTRADICTED --> G1{Evidence source is<br/>one the claim cites?}
+    G1 -- no --> X1[Downgrade: miscited]
+    G1 -- yes --> G2{Quote given, and found in that source?<br/>exact → normalised → elliptical → fuzzy}
+    G2 -- no --> X2[Downgrade: no quote, or<br/>possible hallucinated evidence]
+    G2 -- "yes · CONTRADICTED" --> K
+    G2 -- "yes · SUPPORTED" --> G3{Confidence ≥ 0.5?}
+    G3 -- no --> X3[Downgrade: low confidence]
+    G3 -- yes --> G4{Every number in the claim<br/>appears in a cited source?}
+    G4 -- no --> X4[Downgrade: ungrounded figure]
+    G4 -- yes --> G5{Source authority ≥<br/>admissibility floor 0.45?}
+    G5 -- no --> X5[Downgrade: inadmissible source]
+    G5 -- yes --> K
 ```
+
+The Report Approver and the Plain AI baseline reuse exactly these steps (both subclass `VerifierAgent` and call `judge_claims`), so a report sentence or a plain AI answer passes the same guards as a draft claim.
 
 After every iteration the Verifier computes:
 
@@ -158,6 +169,26 @@ After every iteration the Verifier computes:
 - **quote verification rate**: evidence quotes located verbatim ÷ quotes given
 
 Sub-questions whose own grounding falls below the threshold, or that have nothing supported, become the **targets** of the next pass. A loop-back re-researches and re-drafts only those. Sub-questions that already verified are kept as they are (LangGraph `merge_dicts` reducers), and the full history is kept in append-only `claim_history`, `verification_history`, and `audit_log` reducers.
+
+What happens to a round's verdicts (`verifier_node`, `route_group`, `route_master` and `route_verification` in [`src/agents/orchestrator.py`](src/agents/orchestrator.py)):
+
+```mermaid
+flowchart TD
+    V[Verdicts for the round] --> CR[Contradiction radar<br/>cross-source scan: both quotes must be found verbatim<br/>+ claims that their own cited source contradicts]
+    CR --> M[Metrics + gaps<br/>grounding · coverage · citation precision · quote verification]
+    M --> W{Did this quick fix<br/>lower grounding?}
+    W -- yes --> RV[Keep the previous version<br/>the attempt stays in the audit history]
+    W -- "no, or first check" --> Q
+    RV --> Q{Rejected claims with evidence to fix them,<br/>quick fixes left · max 2 per round,<br/>grounding still rising, budget soft limit not reached?}
+    Q -- yes --> QF[Quick fix: the Drafter revises from the same evidence<br/>with the Verifier's reason for each rejected claim]
+    QF -->|Verifier re-checks| V
+    Q -- no --> L{{Round report to the Master Approver}}
+    L --> GT{Below the gate · grounding under 0.75<br/>or coverage under 0.70 · with rounds and budget left?}
+    GT -- yes --> AR[Another round is mandatory<br/>targeted research and re-drafting<br/>for the failing sub-questions only]
+    AR -->|Researcher → Drafter → Verifier| V
+    GT -- no --> AP[Approve for the Synthesizer<br/>or one extra targeted pass on remaining gaps<br/>gaps are disclosed if rounds ran out below the gate]
+    AP --> RA[Report Approver runs the same guards<br/>on every cited report sentence]
+```
 
 ### Quote localisation: no trust required
 
